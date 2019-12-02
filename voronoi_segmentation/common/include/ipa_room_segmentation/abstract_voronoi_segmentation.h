@@ -12,6 +12,7 @@
 
 #include <ipa_room_segmentation/room_class.h>
 
+
 #define PI 3.14159265
 
 // Struct that compares two given points and returns if the y-coordinate of the first is smaller or if they are equal if the
@@ -80,5 +81,9 @@ protected:
 public:
 
 	AbstractVoronoiSegmentation();
+
+	void draw_segmented_map(const cv::Mat& segmented_map_to_be_draw, std::vector<Room>& rooms, const char *input_name);
+
+	void get_segment_points_set(const cv::Mat& segmented_map, std::vector<Room>& rooms, std::vector<std::vector<cv::Point>>& segment_result);
 	
 };

@@ -6,6 +6,8 @@
 #include <ipa_room_segmentation/timer.h>
 #include <set>
 
+#define robot_width 0.3
+#define robot_length 0.5
 
 VoronoiSegmentation::VoronoiSegmentation()
 {
@@ -51,6 +53,10 @@ void VoronoiSegmentation::segmentMap(const cv::Mat& map_to_be_labeled, cv::Mat& 
 
 	//*********************I. Calculate and draw the Voronoi-Diagram in the given map*****************
 
+double total_area = map_resolution_from_subscription * map_resolution_from_subscription * map_to_be_labeled.rows * map_to_be_labeled.cols;
+int max_number_node_points = (int)total_area/0.3;
+std::cout << "total_area: " << total_area << std::endl;
+
 	cv::Mat voronoi_map = map_to_be_labeled.clone();
 	createVoronoiGraph(voronoi_map); //voronoi-map for the segmentation-algorithm
 imwrite("voronoi_map.png", voronoi_map);
@@ -62,7 +68,18 @@ imwrite("voronoi_map.png", voronoi_map);
 	//	repeat a large enough number of times so the graph converges
 	std::set<cv::Point, cv_Point_comp> node_points; //variable for node point extraction
 	pruneVoronoiGraph(voronoi_map, node_points);
+	// for(int node_remove_loop = 0; node_remove_loop < 10; node_remove_loop ++)
+	// {
+	// 	if(node_points.size() > max_number_node_points)
+	// 	{
+	// 		node_points.clear();
+	// 		pruneVoronoiGraph(voronoi_map, node_points);
+	// 		std::cout << "node_points.size(): " << node_points.size() << std::endl;
+	// 	}
+	// 	else break;
+	// }
 
+std::cout << "node_points.size(): " << node_points.size() << std::endl;
 imwrite("pruneVoronoi.png", voronoi_map);
 	//3.find the critical points in the previously calculated generalized Voronoi-graph by searching in a specified
 	//	neighborhood for the local minimum of distance to the nearest black pixel
@@ -129,29 +146,70 @@ imwrite("distance_map.png", distance_map);	//  distance to the nearest zero poin
 					//check if enough neighbors have been checked or checked enough times (e.g. at a small segment of the graph)
 				} while (neighbor_count <= eps && loopcounter < max_iterations);
 				//check every found point in the neighborhood if it is the local minimum in the distanceMap
-				cv::Point current_critical_point = cv::Point(u, v);
+				cv::Point current_critical_point_min = cv::Point(u, v);
+				cv::Point current_critical_point_max = cv::Point(u, v);
 				for(std::set<cv::Point, cv_Point_comp>::iterator it_neighbor_points = neighbor_points.begin(); it_neighbor_points != neighbor_points.end(); it_neighbor_points++)
 				{
-					if (distance_map.at<unsigned char>(it_neighbor_points->y, it_neighbor_points->x) < distance_map.at<unsigned char>(current_critical_point.y, current_critical_point.x))
+					if (distance_map.at<unsigned char>(it_neighbor_points->y, it_neighbor_points->x) < distance_map.at<unsigned char>(current_critical_point_min.y, current_critical_point_min.x))
 					{
-						current_critical_point = cv::Point(*it_neighbor_points);
+						current_critical_point_min = cv::Point(*it_neighbor_points);
+					}
+					if (distance_map.at<unsigned char>(it_neighbor_points->y, it_neighbor_points->x) > distance_map.at<unsigned char>(current_critical_point_max.y, current_critical_point_max.x))
+					{
+						current_critical_point_max = cv::Point(*it_neighbor_points);
 					}
 				}
 				//add the local minimum point to the critical points
-				critical_points.push_back(current_critical_point);
+				//remove some critical points which is too closet
+				bool insert_flag = true;
+				for(int i = 0; i < critical_points.size(); i++)
+				{
+					double vector_px = critical_points[i].x - current_critical_point_min.x;
+					double vector_py = critical_points[i].y - current_critical_point_min.y;
+					double points_distance = std::sqrt(vector_px*vector_px + vector_py*vector_py);
+					if(points_distance < robot_width/map_resolution_from_subscription)
+					{
+						insert_flag = false;
+						break;
+					}
+						
+				}
+				if(insert_flag)
+					critical_points.push_back(current_critical_point_min);
+
+
+				insert_flag = true;
+				for(int i = 0; i < critical_points.size(); i++)
+				{
+					double vector_px = critical_points[i].x - current_critical_point_max.x;
+					double vector_py = critical_points[i].y - current_critical_point_max.y;
+					double points_distance = std::sqrt(vector_px*vector_px + vector_py*vector_py);
+					if(points_distance < robot_width/map_resolution_from_subscription)
+					{
+						insert_flag = false;
+						break;
+					}
+						
+				}
+				if(insert_flag)
+					critical_points.push_back(current_critical_point_max);
 			}
 		}
 	}
 
 
+
+
+
+
 		cv::Mat display = map_to_be_labeled.clone();
 		for (size_t i=0; i<critical_points.size(); ++i)
 			cv::circle(display, critical_points[i], 2, cv::Scalar(128), -1);
-imwrite("display_critical_points.png", display);
+imwrite("voronoi_map_critical_points.png", display);
+std::cout << "critical_points.size(): " << critical_points.size() << std::endl;
 	//
 	//*************III. draw the critical lines from every found critical Point to its two closest zero-pixel****************
 	//
-std::cout << "step3 "<<std::endl;
 	//map to draw the critical lines and fill the map with random colors
 	map_to_be_labeled.convertTo(segmented_map, CV_32SC1, 256, 0); // rescale to 32 int, 255 --> 255*256 = 65280
 
@@ -165,6 +223,7 @@ std::cout << "step3 "<<std::endl;
 	// 2. Get the basis-points for each critical-point
 	std::vector<cv::Point> basis_points_1, basis_points_2;
 	std::vector<double> length_of_critical_line;
+	std::vector<double> length_of_minimal_radius;
 	std::vector<double> angles; //the angles between the basis-lines of each critical Point
 	for (int critical_point_index = 0; critical_point_index < critical_points.size(); critical_point_index++)
 	{
@@ -232,16 +291,21 @@ std::cout << "step3 "<<std::endl;
 		basis_points_1.push_back(basis_point_1);
 		basis_points_2.push_back(basis_point_2);
 		length_of_critical_line.push_back(distance_basis_1 + distance_basis_2);
+		length_of_minimal_radius.push_back(distance_basis_1);
 		angles.push_back(current_angle);
+		
 	}
 
 	//3. Check which critical points should be used for the segmentation. This is done by checking the points that are
 	//   in a specified distance to each other and take the point with the largest calculated angle, because larger angles
 	//   correspond to a separation across the room, which is more useful
+	int critical_line_count = 0;
 	for (int first_critical_point = 0; first_critical_point < critical_points.size(); first_critical_point++)
 	{
 		//reset variable for checking if the line should be drawn
 		bool draw = true;
+
+		
 		for (int second_critical_point = 0; second_critical_point < critical_points.size(); second_critical_point++)
 		{
 			if (second_critical_point != first_critical_point)
@@ -250,38 +314,73 @@ std::cout << "step3 "<<std::endl;
 				const double vector_x = critical_points[second_critical_point].x - critical_points[first_critical_point].x;
 				const double vector_y = critical_points[second_critical_point].y - critical_points[first_critical_point].y;
 				const double critical_point_distance = std::sqrt(vector_x*vector_x + vector_y*vector_y);
+				double angle_difference = abs(angles[first_critical_point] - angles[second_critical_point]);
 				//check if the points are too close to each other corresponding to the distance to the nearest black pixel
 				//of the current critical point. This is done because critical points at doors are closer to the black region
 				//and shorter and may be eliminated in the following step. By reducing the checking distance at this point
 				//it gets better.
-				if (critical_point_distance < ((int) distance_map.at<unsigned char>(critical_points[first_critical_point].y, critical_points[first_critical_point].x) * min_critical_point_distance_factor)) //1.7
+///////**************************************mainly need to be modified code*********************************
+//draw the local biggest and smallest circles
+				//local minimal; distance to obstacle < 2m, 
+				//if the critical point was contained
+				if( (critical_point_distance + length_of_minimal_radius[first_critical_point]) <= length_of_minimal_radius[second_critical_point])
+					draw = false;
+
+				if( length_of_minimal_radius[first_critical_point] <= robot_width/map_resolution_from_subscription)
+					draw = false;	//even to occupy it.
+
+				//for large radius critical points, 
+				if( critical_point_distance < (length_of_minimal_radius[second_critical_point] + length_of_minimal_radius[first_critical_point]) &&
+					length_of_minimal_radius[first_critical_point] < length_of_minimal_radius[second_critical_point] && 
+					(angles[first_critical_point] < angles[second_critical_point]) && length_of_minimal_radius[first_critical_point] > robot_width*5/map_resolution_from_subscription)	//assume door's width is  smaller than 3m.
+					draw = false;
+
+				//if two circle are similar ; overlap a lot; corridors
+				if (critical_point_distance < ((int) distance_map.at<unsigned char>(critical_points[second_critical_point].y, critical_points[second_critical_point].x) * min_critical_point_distance_factor)) //1.7
 				{
 					//if one point in neighborhood is found that has a larger angle the actual to-be-checked point shouldn't be drawn
-					if (angles[first_critical_point] < angles[second_critical_point])
+					if (angles[first_critical_point] < angles[second_critical_point] && length_of_minimal_radius[first_critical_point] > robot_width*3/map_resolution_from_subscription)
 					{
 						draw = false;
 					}
-					//if the angles of the two neighborhood points are the same the shorter one should be drawn, because it is more likely something like e.g. a door
-					if (angles[first_critical_point] == angles[second_critical_point] &&
-						length_of_critical_line[first_critical_point] > length_of_critical_line[second_critical_point] &&
-						(length_of_critical_line[second_critical_point] > 3 || first_critical_point > second_critical_point))
-					{
-						draw = false;
-					}
+					
 				}
+
+				//for small radius critical points
+				// if( critical_point_distance < (length_of_minimal_radius[second_critical_point] + length_of_minimal_radius[first_critical_point]) &&
+				// 	length_of_minimal_radius[first_critical_point] > length_of_minimal_radius[second_critical_point] && 
+				// 	length_of_minimal_radius[first_critical_point] < robot_width*5/map_resolution_from_subscription)
+				// 	draw = false;
+				
+				//avoid the critical line near the boundary of map
+				// if(basis_points_1[first_critical_point].x > 2 && basis_points_1[first_critical_point].x < (voronoi_map.cols-2) &&
+				// basis_points_2[first_critical_point].x > 2 && basis_points_2[first_critical_point].x < (voronoi_map.cols-2) &&
+				// basis_points_1[first_critical_point].y > 2 && basis_points_1[first_critical_point].y < (voronoi_map.rows-2) &&
+				// basis_points_2[first_critical_point].y > 2 && basis_points_2[first_critical_point].y < (voronoi_map.rows-2)  )
+				// {
+				// 	draw = false;
+				// }
 			}
 		}
 		//4. draw critical-lines if angle of point is larger than the other
 		if (draw)
 		{
-			cv::line(voronoi_map, critical_points[first_critical_point], basis_points_1[first_critical_point], cv::Scalar(0), 2);
-			cv::line(voronoi_map, critical_points[first_critical_point], basis_points_2[first_critical_point], cv::Scalar(0), 2);
+			if(length_of_minimal_radius[first_critical_point] < robot_width*8/map_resolution_from_subscription)
+			{
+				cv::line(voronoi_map, critical_points[first_critical_point], basis_points_1[first_critical_point], cv::Scalar(0), 2);
+				cv::line(voronoi_map, critical_points[first_critical_point], basis_points_2[first_critical_point], cv::Scalar(0), 2);
+			}
+			else
+			{
+				cv::circle(voronoi_map, critical_points[first_critical_point], length_of_minimal_radius[first_critical_point], cv::Scalar(0), 2);
+			}
+			critical_line_count ++;
 		}
 	}
 //	if(display_map == true)
 //		cv::imshow("voronoi_map", voronoi_map);
-imwrite("voronoi_map_critical_line.png", voronoi_map);
-
+	imwrite("voronoi_map_critical_line.png", voronoi_map);
+std::cout << "critical_line_count : " << critical_line_count << std::endl;
 	//*************error info**********Find the Contours seperated from the critcal lines and fill them with color******************
 
 	std::vector < cv::Scalar > already_used_colors; //saving-vector to save the already used coloures
@@ -292,6 +391,8 @@ imwrite("voronoi_map_critical_line.png", voronoi_map);
 
 	//1. Erode map one time, so small gaps are closed
 //	cv::erode(voronoi_map_, voronoi_map_, cv::Mat(), cv::Point(-1, -1), 1);
+	cv::erode(voronoi_map, voronoi_map, cv::Mat());
+	cv::erode(voronoi_map, voronoi_map, cv::Mat());
 	cv::findContours(voronoi_map, contours, hierarchy, CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE);
 
 	for (int current_contour = 0; current_contour < contours.size(); current_contour++)
@@ -315,6 +416,7 @@ imwrite("voronoi_map_critical_line.png", voronoi_map);
 					{
 						cv::drawContours(segmented_map, contours, current_contour, fill_colour, 1);  
 						//not for drawing the room, but for the room_id; each pixel denotes a roomid.
+						//only draw the contours points
 						already_used_colors.push_back(fill_colour);
 						Room current_room(random_number); //add the current Contour as a room
 						for (int point = 0; point < contours[current_contour].size(); point++) //add contour points to room
@@ -328,41 +430,44 @@ imwrite("voronoi_map_critical_line.png", voronoi_map);
 			}
 		}
 	}
+	draw_segmented_map(segmented_map, rooms, "segmented_map_after_contours.png");
 	std::cout << "Found " << rooms.size() << " rooms.\n";
 
 	//3.fill the last white areas with the surrounding color
 	wavefrontRegionGrowing(segmented_map);
-
-	if(display_map == true)
-	{
-		cv::imshow("before", segmented_map);
-		cv::waitKey(1);
-	}
-imwrite("segmented_map.png", segmented_map);
+	draw_segmented_map(segmented_map, rooms, "segmented_map_before_merge_room.png");
 
 	//4.merge the rooms together if neccessary
 	mergeRooms(segmented_map, rooms, map_resolution_from_subscription, max_area_for_merging, display_map);
 	std::cout << "after merged Found " << rooms.size() << " rooms.\n";
 
-	draw_segmented_map(segmented_map, rooms);
+	draw_segmented_map(segmented_map, rooms, "segmented_map_after_merge.png");
+
+	std::vector<std::vector<cv::Point>> segment_result;
+	get_segment_points_set(segmented_map, rooms, segment_result);
+	std::cout << "segment_result size " << segment_result.size() << " segment line.\n";
+
+	draw_segmented_line(segmented_map, segment_result, "segmented_line.png");
 
 }
 
 
-void VoronoiSegmentation::draw_segmented_map(cv::Mat& segmented_map_to_be_draw, std::vector<Room>& rooms)
+void VoronoiSegmentation::draw_segmented_line(const cv::Mat& map_to_be_draw, std::vector<std::vector<cv::Point>>& segment_result, const char *input_name)
 {
-	if (segmented_map_to_be_draw.type()!=CV_32SC1)
+	if (map_to_be_draw.type()!=CV_32SC1)
 	{
-		std::cout << "Error: draw_segmented_map: provided image is not of type CV_32SC1." << std::endl;
+		std::cout << "Error: map_to_be_draw: provided image is not of type CV_32SC1." << std::endl;
 		return;
 	}
 
-	cv::Mat drawed_segmented_map = cv::Mat::zeros(segmented_map_to_be_draw.rows,segmented_map_to_be_draw.cols,CV_8UC3);
-	for (int row = 0; row < segmented_map_to_be_draw.rows; row++)
+	std::vector <cv::Vec3b> used_colors;
+
+	cv::Mat drawed_segmented_map = cv::Mat::zeros(map_to_be_draw.rows,map_to_be_draw.cols,CV_8UC3);
+	for (int row = 0; row < map_to_be_draw.rows; row++)
 	{
-		for (int column = 1; column < segmented_map_to_be_draw.cols; column++)
+		for (int column = 1; column < map_to_be_draw.cols; column++)
 		{
-			if( segmented_map_to_be_draw.at<int>(row, column) > 0 )
+			if( map_to_be_draw.at<int>(row, column) > 0 )
 			{
 				cv::Vec3b color;
 				color[0] = 255;
@@ -373,51 +478,33 @@ void VoronoiSegmentation::draw_segmented_map(cv::Mat& segmented_map_to_be_draw, 
 		}
 	}
 
- 	// std::vector<cv::Mat> channels;
-    // for (int i=0;i<3;i++)
-    // {
-    //     channels.push_back(segmented_map_to_be_draw);
-    // }
-    // merge(channels,drawed_segmented_map);
-
-	//std::vector<cv::Vec3b> color_set_vector;
-	for(int i = 0; i < rooms.size(); i ++)
+	for(int i = 0; i < segment_result.size(); i ++)
 	{
+		std::vector<cv::Point> segment_line = segment_result[i];
 		cv::Vec3b color;
-		color[0] = rand() % 255;
-		color[1] = rand() % 255;
-		color[2] = rand() % 255;
-		
-		std::vector<cv::Point> room_members = rooms[i].getMembers();
-		for(int j = 0; j < room_members.size(); j ++)
+		bool drawn = false;
+		int loop_counter = 0;
+		do
 		{
-			int x = room_members[j].x;
-			int y = room_members[j].y;
-			drawed_segmented_map.at<cv::Vec3b>(y, x) = color;
+			loop_counter++;
+			color[0] = rand() % 255;
+			color[1] = rand() % 255;
+			color[2] = rand() % 255;
+			if (!contains(used_colors, color) || loop_counter > 100)
+			{
+				drawn = true;
+				used_colors.push_back(color);
+			}
+		} while (!drawn);
+
+		for(int j = 0; j < segment_line.size(); j ++)
+		{
+			
+			int x = segment_line[j].x;
+			int y = segment_line[j].y;
+			cv::circle(drawed_segmented_map, segment_line[j], 2, color, -1);
+			//drawed_segmented_map.at<cv::Vec3b>(y, x) = color;
 		}
 	}
-
-
-	// std::vector<cv::Point> room_points_members = getMembers();
-
-	// for (int row = 0; row < segmented_map_to_be_draw.rows; row++)
-	// {
-	// 	for (int column = 1; column < segmented_map_to_be_draw.cols; column++)
-	// 	{
-	// 		for(int i = 0; i < rooms.size(); i ++)
-	// 		{
-	// 			if( (segmented_map_to_be_draw.at<int>(row, column)) == rooms[i].getID() )
-	// 			{
-	// 				drawed_segmented_map.at<cv::Vec3b>(row, column) = color_set_vector[i];
-	// 			}
-	// 			// else
-	// 			// {
-	// 			// 	drawed_segmented_map.at<cv::Vec3b>(row, column) = cv::Vec3b(255,255,255);
-	// 			// }
-				
-	// 		}
-	// 	}
-	// }
-
-	imwrite("drawed_segmented_map.png", drawed_segmented_map);
+	imwrite(input_name, drawed_segmented_map);
 }

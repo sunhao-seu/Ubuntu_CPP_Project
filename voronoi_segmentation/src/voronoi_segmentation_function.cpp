@@ -250,6 +250,13 @@ void occupy_map_to_cvimage(nav_msgs::OccupancyGrid &occupancy_map, const char *i
                 
         }
     }
+
+    int black_threshold = 210;
+    //remove the noise from map image
+    bool de = DenoiseImg( input_name, input_name, black_threshold, 18, noise_percent );
+    if (de)
+        cout << "Denoise run successed!!" << endl;
+
     imwrite(input_name, image);
 
 }
@@ -259,11 +266,11 @@ void occupy_qimage_to_result(const char *input_name)
     cv::Mat original_img = cv::imread(input_name,0);
 
     double room_upper_limit_voronoi_ = 1200.0;
-    double room_lower_limit_voronoi_ = 1.53;
-    int voronoi_neighborhood_index_ = 280;
-    int max_iterations_ = 150;
-    double min_critical_point_distance_factor_ =  1.6;
-    double max_area_for_merging_ =  1.6;
+    double room_lower_limit_voronoi_ = 2;
+    int voronoi_neighborhood_index_ = 310;
+    int max_iterations_ = 1000;
+    double min_critical_point_distance_factor_ =  1.3;
+    double max_area_for_merging_ =  1.3;
     double map_resolution = 0.05;
     cv::Mat segmented_map;
 

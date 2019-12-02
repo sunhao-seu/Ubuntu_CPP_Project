@@ -124,6 +124,7 @@ int Room::getNeighborWithLargestCommonBorder(bool exclude_wall)
 		return 0;
 
 	std::map< int,int,std::greater<int> > neighbor_room_statistics_inverse;	// common border length, room_id
+	//find the max number of neighbor, [pay attention to greater...]
 	for (std::map<int,int>::iterator it=neighbor_room_statistics_.begin(); it!=neighbor_room_statistics_.end(); ++it)
 		neighbor_room_statistics_inverse[it->second] = it->first;
 
@@ -134,11 +135,13 @@ int Room::getNeighborWithLargestCommonBorder(bool exclude_wall)
 		return it->second;
 	}
 
+	//return the roomid of the largest common border room
 	return neighbor_room_statistics_inverse.begin()->second;
 }
 
 double Room::getPerimeterRatioOfXLargestRooms(const int number_rooms)
 {
+	//if finding the wall?
 	if (neighbor_room_statistics_.size() == 0)
 		return 0;
 

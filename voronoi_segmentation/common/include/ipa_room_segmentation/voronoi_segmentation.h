@@ -24,5 +24,7 @@ public:
 			double room_area_factor_lower_limit, double room_area_factor_upper_limit, int neighborhood_index, int max_iterations,
 			double min_critical_point_distance_factor, double max_area_for_merging, bool display_map=false);
 
-	void draw_segmented_map(cv::Mat& segmented_map_to_be_draw, std::vector<Room>& rooms);
+	//void draw_segmented_map(const cv::Mat& segmented_map_to_be_draw, std::vector<Room>& rooms, const char *input_name);
+	void draw_segmented_line(const cv::Mat& map_to_be_draw, std::vector<std::vector<cv::Point>>& segment_result, const char *input_name);
+
 };
