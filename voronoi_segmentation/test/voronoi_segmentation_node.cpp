@@ -32,37 +32,38 @@ ros::Publisher pub_voronio;
 
 
 void pcdLoadCallback(const ros::TimerEvent&){
-  PointCloud::Ptr cloud_load(new PointCloud);
+  // PointCloud::Ptr cloud_load(new PointCloud);
 
 ///home/wolfhao/Documents/area_segmentation_file/2F_gt.pcd
 ///home/wolfhao/Documents/area_segmentation_file/PCD/outside_Map_pcd.pcd
-  if (pcl::io::loadPCDFile<pcl::PointXYZ>("/home/wolfhao/Documents/area_segmentation_file/2F_gt.pcd", *cloud_load) == -1){
-    PCL_ERROR("Couldn't read pcd file\n");
-  }
+  // if (pcl::io::loadPCDFile<pcl::PointXYZ>("/home/wolfhao/Documents/area_segmentation_file/2F_gt.pcd", *cloud_load) == -1){
+  //   PCL_ERROR("Couldn't read pcd file\n");
+  // }
 
-  PointCloud::Ptr cloud_load_transform(new PointCloud);
-  PointCloud::Ptr processed_cloud(new PointCloud);
-  PointCloud::Ptr two_dim_point_cloud(new PointCloud);
-  nav_msgs::OccupancyGrid occupancy_map;
+  // PointCloud::Ptr cloud_load_transform(new PointCloud);
+  // PointCloud::Ptr processed_cloud(new PointCloud);
+  // PointCloud::Ptr two_dim_point_cloud(new PointCloud);
+  // nav_msgs::OccupancyGrid occupancy_map;
   
-  //transform_zxy_xyz(*cloud_load, *cloud_load_transform);
-  *cloud_load_transform = *cloud_load;
-  pre_process_cloud_points(*cloud_load_transform, *processed_cloud);
-  from_3d_to_2d(*processed_cloud, *two_dim_point_cloud);
-  from_2d_to_occupy_map(*two_dim_point_cloud, occupancy_map);
-  std::cout << "before create png" << std::endl;  
-  //occupy_map_to_qimage(occupancy_map, "2dmap.png");
-  occupy_map_to_cvimage(occupancy_map, "2dmap.png");
+  // //transform_zxy_xyz(*cloud_load, *cloud_load_transform);
+  // *cloud_load_transform = *cloud_load;
+  // pre_process_cloud_points(*cloud_load_transform, *processed_cloud);
+  // from_3d_to_2d(*processed_cloud, *two_dim_point_cloud);
+  // from_2d_to_occupy_map(*two_dim_point_cloud, occupancy_map);
+  // std::cout << "before create png" << std::endl;  
+  // //occupy_map_to_qimage(occupancy_map, "2dmap.png");
+  // occupy_map_to_cvimage(occupancy_map, "2dmap.png");
 
-  std::cout << "before occupy_qimage_to_result" << std::endl;  
+  // std::cout << "before occupy_qimage_to_result" << std::endl;  
 
-  occupy_qimage_to_result("2dmap.png");
+
+  occupy_qimage_to_result("/home/wolfhao/Pictures/picture/1.png");
   
   // Pub the point cloud
-  PointCloud cloud = *cloud_load_transform;
-  cloud.header.frame_id = "global";
-  pcd_pub.publish(cloud);
-  occupy_map_pub.publish(occupancy_map);
+  // PointCloud cloud = *cloud_load_transform;
+  // cloud.header.frame_id = "global";
+  // pcd_pub.publish(cloud);
+  // occupy_map_pub.publish(occupancy_map);
 }
 
 

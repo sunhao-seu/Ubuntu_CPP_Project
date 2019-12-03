@@ -73,6 +73,8 @@ protected:
 	//   3. It returns the map that has the pruned generalized voronoi-graph drawn in.
 	void pruneVoronoiGraph(cv::Mat& voronoi_map, std::set<cv::Point, cv_Point_comp>& node_points);
 
+	void FindNodePoints(cv::Mat& voronoi_map, std::set<cv::Point, cv_Point_comp>& node_points);
+
 	// Function to merge rooms together
 	// Function that goes trough each given room and checks if it should be merged together wit another bigger room, if it is too small.
 	// This function takes the segmented Map from the original Voronoi-segmentation-algorithm and merges rooms together,
