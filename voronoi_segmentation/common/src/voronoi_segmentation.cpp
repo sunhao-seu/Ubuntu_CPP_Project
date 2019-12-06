@@ -6,6 +6,7 @@
 #include <ipa_room_segmentation/timer.h>
 #include <set>
 
+
 #define robot_width 0.3
 #define robot_length 0.5
 
@@ -94,6 +95,544 @@ imwrite("distance_map.png", distance_map);	//  distance to the nearest zero poin
 
 //********************search in a range(defined by eps), the point with nearest distance to obstacle will be the critical point.************* 
 	std::vector<cv::Point> critical_points; //saving-variable for the critical points found on the Voronoi-graph
+	Find_critical_points(voronoi_map, distance_map, critical_points, map_resolution_from_subscription, neighborhood_index, max_iterations);
+
+	cv::Mat display = map_to_be_labeled.clone();
+	for (size_t i=0; i<critical_points.size(); ++i)
+		cv::circle(display, critical_points[i], 2, cv::Scalar(128), -1);
+imwrite("voronoi_map_critical_points.png", display);
+std::cout << "critical_points.size(): " << critical_points.size() << std::endl;
+
+
+	std::vector<cv::Point> my_node_points; //variable for node point extraction
+	Find_my_node_points(voronoi_map_backup, distance_map, my_node_points);	
+	cv::Mat display_test = map_to_be_labeled.clone();
+	for (size_t i=0; i<my_node_points.size(); ++i)
+		cv::circle(display_test, my_node_points[i], 2, cv::Scalar(128), -1);
+	imwrite("my_true_node_points.png", display_test);
+	std::cout << "my_true_node_points.size(): " << my_node_points.size() << std::endl;
+
+	//map_to_be_labeled.convertTo(segmented_map, CV_32SC1, 256, 0); // rescale to 32 int, 255 --> 255*256 = 65280
+
+	//cv::Mat ray_cast_occupy_map = map_to_be_labeled.clone();
+	cv::Mat ray_cast_occupy_map = cv::Mat::zeros(map_to_be_labeled.rows,map_to_be_labeled.cols,CV_32SC1);
+	for(int node_point_index = 0; node_point_index < my_node_points.size(); node_point_index++)
+	{
+		cv::Point current_point = my_node_points[node_point_index];
+		ray_occupy_map_func(current_point, ray_cast_occupy_map, map_to_be_labeled);
+	}
+
+	imwrite("ray_cast_occupy_map.png", ray_cast_occupy_map);
+
+	
+// 	cv::Mat test_map = cv::imread("ray_cast_occupy_map.png",0); 
+// 	//cv::Mat test_map = ray_cast_occupy_map.clone();
+// 	cv::Mat grad_x, grad_y;
+//     cv::Mat abs_grad_x, abs_grad_y, dst;
+
+//     //求x方向梯度
+//     Sobel(test_map, grad_x, CV_16S, 1, 0, 1, 1, 0,cv::BORDER_DEFAULT);
+//     convertScaleAbs(grad_x, abs_grad_x);
+//    // imshow("x方向soble", abs_grad_x);
+// imwrite("ray_map_Xsobel.png", abs_grad_x);
+//     //求y方向梯度
+//     Sobel(test_map, grad_y,CV_16S,0, 1,1, 1, 0, cv::BORDER_DEFAULT);
+//     convertScaleAbs(grad_y,abs_grad_y);
+//     //imshow("y向soble", abs_grad_y);
+// imwrite("ray_map_Ysobel.png", abs_grad_y);
+//     //合并梯度
+//     addWeighted(abs_grad_x, 0.5, abs_grad_y, 0.5, 0, dst);
+//     //imshow("整体方向soble", dst);
+// 	imwrite("ray_map_sobel.png", dst);
+
+	//find the maximum and minimum grid
+	unsigned int max_vote = 0;
+	unsigned int min_vote = 10000;
+	std::vector<int> votes_result;
+	for (int v = 0; v < ray_cast_occupy_map.rows; v++)
+	{
+		for (int u = 0; u < ray_cast_occupy_map.cols; u++)
+		{
+			unsigned int sum_veto = ray_cast_occupy_map.at<int>(v, u);
+			if(sum_veto > 0 && sum_veto <= my_node_points.size())
+			{
+				if(sum_veto > max_vote)
+					max_vote = sum_veto;
+				if(sum_veto < min_vote)
+					min_vote = sum_veto;
+
+				if(!contains(votes_result, sum_veto))
+					votes_result.push_back(sum_veto);
+			}
+		}
+	}
+	std::cout << "max veto is: " << max_vote << std::endl;
+	std::cout << "min veto is: " << min_vote << std::endl;
+	std::cout << "votes_result  is: " << votes_result.size() << std::endl;
+
+	cv::Mat merged_ray_map = cv::Mat::zeros(ray_cast_occupy_map.rows,ray_cast_occupy_map.cols,CV_32SC1);	//each id represent a area
+	cv::Mat ray_occupied_map = ray_cast_occupy_map.clone();	
+	std::vector<cv::Point> overlap_points;
+	int last_area_id = 0;
+	// from corner points to center points
+	//for(int node_point_index = my_node_points.size()-1; node_point_index >=0; node_point_index--)
+	for(int node_point_index = 0; node_point_index < my_node_points.size(); node_point_index++)
+	{
+		cv::Point current_node_point = my_node_points[node_point_index];
+		SegmentArea(current_node_point, ray_cast_occupy_map, merged_ray_map, overlap_points, last_area_id);
+
+	}
+
+
+	std::vector<Room> rooms; //Vector to save the rooms in this map
+	for(int roomid = 1; roomid < last_area_id; roomid++)
+	{
+		int current_room_id = roomid;
+		int member_count = 0;
+		Room current_room(current_room_id); //add the current Contour as a room
+		for (int v = 0; v < merged_ray_map.rows; v++)
+		{
+			for (int u = 0; u < merged_ray_map.cols; u++)
+			{
+				unsigned int point_roomid = merged_ray_map.at<int>(v, u);
+				if(point_roomid == current_room_id)
+				{
+					current_room.insertMemberPoint(cv::Point(u,v), map_resolution_from_subscription);
+					member_count ++;
+				}
+			}
+		}
+		//if(member_count > 100 && current_room_id > max_vote/2)
+		rooms.push_back(current_room);
+		//SegmentArea(current_point, ray_cast_occupy_map, map_to_be_labeled);
+	}
+
+	draw_segmented_map(merged_ray_map, rooms, "ray_segmented_map.png");
+	std::cout << "Found " << rooms.size() << " rooms.\n";
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+void VoronoiSegmentation::SegmentArea(cv::Point node_point, const cv::Mat& ray_cast_occupy_map, cv::Mat& merged_ray_map, std::vector<cv::Point>& overlap_points, int& last_area_id)
+{
+	//only do wavefront when the point hasn't be allocated a roomid
+	if(merged_ray_map.at<int>(node_point.y, node_point.x) == 0)
+	{
+		int current_area_id = last_area_id +1;
+		std::queue<cv::Point> points_tobe_search_neighbor;
+		int node_point_vote_number = ray_cast_occupy_map.at<int>(node_point.y, node_point.x);
+		points_tobe_search_neighbor.push(node_point);
+		while(points_tobe_search_neighbor.size() > 0)
+		{
+			cv::Point current_point = points_tobe_search_neighbor.front();
+			int current_vote_number = ray_cast_occupy_map.at<int>(current_point.y, current_point.x);
+			for(int i = -1; i <= 1; i ++)
+			{
+				for(int j = -1; j <= 1; j ++)
+				{
+					//nearest 1 grid
+					if((abs(i) + abs(j)) == 1)
+					{
+						int searching_x = current_point.x + i;
+						int searching_y = current_point.y + j;
+						if (searching_x >= 0 && searching_y >= 0 && searching_y < ray_cast_occupy_map.rows && searching_x < ray_cast_occupy_map.cols )
+						{
+							int searching_vote_number = ray_cast_occupy_map.at<int>(searching_y, searching_x);
+							if(abs(searching_vote_number - current_vote_number) <= 5 && abs(searching_vote_number - node_point_vote_number) <= 15 && searching_vote_number > 0)
+							{
+								if(merged_ray_map.at<int>(searching_y, searching_x) == 0)
+								{
+									points_tobe_search_neighbor.push(cv::Point(searching_x, searching_y));
+									merged_ray_map.at<int>(searching_y, searching_x) = current_area_id;
+								}
+								else
+								{
+									//points_tobe_search_neighbor.push(cv::Point(searching_x, searching_y));
+									overlap_points.push_back(cv::Point(searching_x, searching_y));
+								}
+							}
+						}
+					}
+				}
+			}
+			points_tobe_search_neighbor.pop();
+		}
+		last_area_id = current_area_id;
+	}
+}
+
+
+
+void VoronoiSegmentation::ray_occupy_map_func(cv::Point current_point, cv::Mat& ray_cast_occupy_map, const cv::Mat& original_map)
+{
+	//point(x,y);  but in map(y,x)  v < voronoi_map_backup.rows
+	//int) distance_map.at<unsigned char>(v, u);
+	//cv::Point(u,v)
+	int center_y = current_point.y;
+	int center_x = current_point.x;
+	int image_y_max = original_map.rows;
+	int image_x_max = original_map.cols;
+	int image_y_min = 0;
+	int image_x_min = 0;
+	float angle_increment = 0.2;	//1 du   angle / 180.0 * 3.14159265
+	std::vector<cv::Point> ray_occupied_points;
+
+	for(float angle = 0; angle < 360; angle = angle + angle_increment)
+	{
+
+
+		if(angle == 0)
+		{
+			for(int i = center_x; i < image_x_max; i++)
+			{
+				if(original_map.at<unsigned char>(center_y, i) != 0)
+				{
+					cv::Point preinsert_point;
+					preinsert_point.x = i;
+					preinsert_point.y = center_y;
+					//ray_occupied_points.push_back(cv::Point(i,center_y));
+					if(!contains(ray_occupied_points, preinsert_point))
+						ray_occupied_points.push_back(preinsert_point);	
+				}
+				else break;
+			}
+		}
+
+		if(angle == 90)
+		{
+			for(int i = center_y; i >= 0; i--)
+			{
+				if(original_map.at<unsigned char>(i, center_x) != 0)
+				{
+					cv::Point preinsert_point;
+					preinsert_point.x = center_x;
+					preinsert_point.y = i;
+					//ray_occupied_points.push_back(cv::Point(i,center_y));
+					if(!contains(ray_occupied_points, preinsert_point))
+						ray_occupied_points.push_back(preinsert_point);	
+				}
+				else break;
+			}
+		}
+
+		if(angle == 180)
+		{
+			for(int i = center_x; i >= 0; i--)
+			{
+				if(original_map.at<unsigned char>(center_y, i) != 0)
+				{
+					cv::Point preinsert_point;
+					preinsert_point.x = i;
+					preinsert_point.y = center_y;
+					//ray_occupied_points.push_back(cv::Point(i,center_y));
+					if(!contains(ray_occupied_points, preinsert_point))
+						ray_occupied_points.push_back(preinsert_point);	
+				}
+				else break;
+			}
+		}
+
+		if(angle == 270)
+		{
+			for(int i = center_y; i < image_y_max; i++)
+			{
+				if(original_map.at<unsigned char>(i, center_x) != 0)
+				{
+					cv::Point preinsert_point;
+					preinsert_point.x = center_x;
+					preinsert_point.y = i;
+					//ray_occupied_points.push_back(cv::Point(i,center_y));
+					if(!contains(ray_occupied_points, preinsert_point))
+						ray_occupied_points.push_back(preinsert_point);	
+				}
+				else break;
+			}
+		}
+
+
+		
+		if(angle > 0 && angle <90)
+		{
+			//assume the point is origin,, , right x, up y;  y=kx;
+			float k = tan(angle / 180.0 * 3.14159265);
+			int relative_y_max = center_y;
+			int relative_x_max = image_x_max - center_x;
+			int relative_y_min = center_y - image_y_max;
+			int relative_x_min = 0 - center_x;
+			//float x_bound_y = relative_x_max*k;
+			// if k <= 1; then set x as master
+			if(abs(k) <= 1)
+			{
+				for(int ix = 0; ix <= relative_x_max; ix ++)
+				{
+					cv::Point preinsert_point;
+					// transform to the image coordinate
+					preinsert_point.x = ix + center_x;
+					preinsert_point.y = center_y - floor(k * ix);
+					if(original_map.at<unsigned char>(preinsert_point.y, preinsert_point.x) != 0)
+					{
+						if(!contains(ray_occupied_points, preinsert_point))
+							ray_occupied_points.push_back(preinsert_point);	
+					}
+					else break;
+					
+				}
+			}
+			if(abs(k) >= 1)
+			{
+				for(int iy = 0; iy <= relative_y_max; iy ++)
+				{
+					cv::Point preinsert_point;
+					// transform to the image coordinate
+					preinsert_point.x = center_x + floor(iy / k);
+					preinsert_point.y = center_y - iy;
+					if(original_map.at<unsigned char>(preinsert_point.y, preinsert_point.x) != 0)
+					{
+						if(!contains(ray_occupied_points, preinsert_point))
+							ray_occupied_points.push_back(preinsert_point);	
+					}
+					else break;
+				}
+			}
+
+		}
+		else if (angle > 90 && angle <180)
+		{
+			//assume the point is origin,, , right x, up y;  y=kx;
+			float k = tan(angle / 180.0 * 3.14159265);
+			int relative_y_max = center_y;
+			int relative_x_max = image_x_max - center_x;
+			int relative_y_min = center_y - image_y_max;
+			int relative_x_min = 0 - center_x;
+			//float x_bound_y = relative_x_max*k;
+			// if k <= 1; then set x as master
+			if(abs(k) <= 1)
+			{
+				for(int ix = 0; ix >= relative_x_min; ix --)
+				{
+					cv::Point preinsert_point;
+					// transform to the image coordinate
+					preinsert_point.x = center_x + ix;
+					preinsert_point.y = center_y - floor(k * ix);
+					if(original_map.at<unsigned char>(preinsert_point.y, preinsert_point.x) != 0)
+					{
+						if(!contains(ray_occupied_points, preinsert_point))
+							ray_occupied_points.push_back(preinsert_point);	
+					}
+					else break;
+					
+				}
+			}
+			if(abs(k) >= 1)
+			{
+				for(int iy = 0; iy <= relative_y_max; iy ++)
+				{
+					cv::Point preinsert_point;
+					// transform to the image coordinate
+					preinsert_point.x = center_x + floor(iy / k);
+					preinsert_point.y = center_y - iy;
+					if(original_map.at<unsigned char>(preinsert_point.y, preinsert_point.x) != 0)
+					{
+						if(!contains(ray_occupied_points, preinsert_point))
+							ray_occupied_points.push_back(preinsert_point);	
+					}
+					else break;
+				}
+			}	
+
+		}
+		else if (angle > 180 && angle <270)
+		{
+			//assume the point is origin,, , right x, up y;  y=kx;
+			float k = tan(angle / 180.0 * 3.14159265);
+			int relative_y_max = center_y;
+			int relative_x_max = image_x_max - center_x;
+			int relative_y_min = center_y - image_y_max;
+			int relative_x_min = 0 - center_x;
+			//float x_bound_y = relative_x_max*k;
+			// if k <= 1; then set x as master
+			if(abs(k) <= 1)
+			{
+				for(int ix = 0; ix >= relative_x_min; ix --)
+				{
+					cv::Point preinsert_point;
+					// transform to the image coordinate
+					preinsert_point.x = center_x + ix;
+					preinsert_point.y = center_y - floor(k * ix);
+					if(original_map.at<unsigned char>(preinsert_point.y, preinsert_point.x) != 0)
+					{
+						if(!contains(ray_occupied_points, preinsert_point))
+							ray_occupied_points.push_back(preinsert_point);	
+					}
+					else break;
+					
+				}
+			}
+			if(abs(k) >= 1)
+			{
+				for(int iy = 0; iy >= relative_y_min; iy --)
+				{
+					cv::Point preinsert_point;
+					// transform to the image coordinate
+					preinsert_point.x = center_x + floor(iy / k);
+					preinsert_point.y = center_y - iy;
+					if(original_map.at<unsigned char>(preinsert_point.y, preinsert_point.x) != 0)
+					{
+						if(!contains(ray_occupied_points, preinsert_point))
+							ray_occupied_points.push_back(preinsert_point);	
+					}
+					else break;
+				}
+			}
+		}
+		else if (angle > 270 && angle < 360)
+		{
+			//assume the point is origin,, , right x, up y;  y=kx;
+			float k = tan(angle / 180.0 * 3.14159265);
+			int relative_y_max = center_y;
+			int relative_x_max = image_x_max - center_x;
+			int relative_y_min = center_y - image_y_max;
+			int relative_x_min = 0 - center_x;
+			//float x_bound_y = relative_x_max*k;
+			// if k <= 1; then set x as master
+			if(abs(k) <= 1)
+			{
+				for(int ix = 0; ix <= relative_x_max; ix ++)
+				{
+					cv::Point preinsert_point;
+					// transform to the image coordinate
+					preinsert_point.x = center_x + ix;
+					preinsert_point.y = center_y - floor(k * ix);
+					if(original_map.at<unsigned char>(preinsert_point.y, preinsert_point.x) != 0)
+					{
+						if(!contains(ray_occupied_points, preinsert_point))
+							ray_occupied_points.push_back(preinsert_point);	
+					}
+					else break;
+					
+				}
+			}
+			if(abs(k) >= 1)
+			{
+				for(int iy = 0; iy >= relative_y_min; iy --)
+				{
+					cv::Point preinsert_point;
+					// transform to the image coordinate
+					preinsert_point.x = center_x + floor(iy / k);
+					preinsert_point.y = center_y - iy;
+					if(original_map.at<unsigned char>(preinsert_point.y, preinsert_point.x) != 0)
+					{
+						if(!contains(ray_occupied_points, preinsert_point))
+							ray_occupied_points.push_back(preinsert_point);	
+					}
+					else break;
+				}
+			}
+		}
+
+	}
+
+//scan finished,, add the result to result_map
+	for(int i = 0; i < ray_occupied_points.size(); i ++)
+	{
+		ray_cast_occupy_map.at<int>(ray_occupied_points[i].y, ray_occupied_points[i].x) = 1 + ray_cast_occupy_map.at<int>(ray_occupied_points[i].y, ray_occupied_points[i].x);
+		//ray_cast_occupy_map.at<unsigned char>(ray_occupied_points[i].y, ray_occupied_points[i].x) = 255;
+	}
+
+}
+
+
+
+void VoronoiSegmentation::draw_segmented_line(const cv::Mat& map_to_be_draw, std::vector<std::vector<cv::Point>>& segment_result, const char *input_name)
+{
+	if (map_to_be_draw.type()!=CV_32SC1)
+	{
+		std::cout << "Error: map_to_be_draw: provided image is not of type CV_32SC1." << std::endl;
+		return;
+	}
+
+	std::vector <cv::Vec3b> used_colors;
+
+	cv::Mat drawed_segmented_map = cv::Mat::zeros(map_to_be_draw.rows,map_to_be_draw.cols,CV_8UC3);
+	for (int row = 0; row < map_to_be_draw.rows; row++)
+	{
+		for (int column = 1; column < map_to_be_draw.cols; column++)
+		{
+			if( map_to_be_draw.at<int>(row, column) > 0 )
+			{
+				cv::Vec3b color;
+				color[0] = 255;
+				color[1] = 255;
+				color[2] = 255;
+				drawed_segmented_map.at<cv::Vec3b>(row, column) = color;
+			}
+		}
+	}
+
+	for(int i = 0; i < segment_result.size(); i ++)
+	{
+		std::vector<cv::Point> segment_line = segment_result[i];
+		cv::Vec3b color;
+		bool drawn = false;
+		int loop_counter = 0;
+		do
+		{
+			loop_counter++;
+			color[0] = rand() % 255;
+			color[1] = rand() % 255;
+			color[2] = rand() % 255;
+			if (!contains(used_colors, color) || loop_counter > 100)
+			{
+				drawn = true;
+				used_colors.push_back(color);
+			}
+		} while (!drawn);
+
+		for(int j = 0; j < segment_line.size(); j ++)
+		{
+			
+			int x = segment_line[j].x;
+			int y = segment_line[j].y;
+			cv::circle(drawed_segmented_map, segment_line[j], 2, color, -1);
+			//drawed_segmented_map.at<cv::Vec3b>(y, x) = color;
+		}
+	}
+	imwrite(input_name, drawed_segmented_map);
+}
+
+void VoronoiSegmentation::Find_critical_points(const cv::Mat& map, const cv::Mat& distance_map, std::vector<cv::Point>& critical_points, double map_resolution_from_subscription, int neighborhood_index, int max_iterations)
+{
+	cv::Mat voronoi_map = map.clone();
 	for (int v = 0; v < voronoi_map.rows; v++)
 	{
 		for (int u = 0; u < voronoi_map.cols; u++)
@@ -197,24 +736,296 @@ imwrite("distance_map.png", distance_map);	//  distance to the nearest zero poin
 			}
 		}
 	}
+}
 
-		cv::Mat display = map_to_be_labeled.clone();
-		for (size_t i=0; i<critical_points.size(); ++i)
-			cv::circle(display, critical_points[i], 2, cv::Scalar(128), -1);
-imwrite("voronoi_map_critical_points.png", display);
-std::cout << "critical_points.size(): " << critical_points.size() << std::endl;
-	//
+void VoronoiSegmentation::Find_my_node_points(const cv::Mat& voronoi_map_backup, const cv::Mat& distance_map, std::vector<cv::Point>& my_true_node_points)
+{
+	//find special nodes
+	std::vector<cv::Point> my_node_points; //variable for node point extraction
+	for (int v = 1; v < voronoi_map_backup.rows-1; v++)
+	{
+		for (int u = 1; u < voronoi_map_backup.cols-1; u++)
+		{
+			if (voronoi_map_backup.at<unsigned char>(v, u) == 127)
+			{
+				int neighbor_count = 0;	// variable to save the number of neighbors for each point
+				// check 3x3 region around current pixel
+				for (int row_counter = -1; row_counter <= 1; row_counter++)
+				{
+					for (int column_counter = -1; column_counter <= 1; column_counter++)
+					{
+						// don't check the point itself
+						if (row_counter == 0 && column_counter == 0)
+							continue;
+
+						//check if neighbors are colored with the voronoi-color
+						if (voronoi_map_backup.at<unsigned char>(v + row_counter, u + column_counter) == 127)
+						{
+							neighbor_count++;
+						}
+					}
+				}
+				if (neighbor_count > 2)
+				{
+					my_node_points.push_back(cv::Point(u,v));
+				}
+			}
+		}
+	}
+	std::cout << "my_original_node_points.size(): " << my_node_points.size() << std::endl;
+	for(int current_node_index = 0; current_node_index < my_node_points.size(); current_node_index ++)
+	{
+		bool true_node = true;
+		for(int comp_node_index = 0; comp_node_index < my_node_points.size(); comp_node_index ++)
+		{
+			if(comp_node_index != current_node_index)
+			{
+				const double vector_x = my_node_points[current_node_index].x - my_node_points[comp_node_index].x;
+				const double vector_y = my_node_points[current_node_index].y - my_node_points[comp_node_index].y;
+				const double node_point_distance = std::sqrt(vector_x*vector_x + vector_y*vector_y);
+
+				//only exist one node in 7*7 grids
+				if(node_point_distance < 3)
+				{
+					if(distance_map.at<unsigned char>(my_node_points[current_node_index].y, my_node_points[current_node_index].x) < distance_map.at<unsigned char>(my_node_points[comp_node_index].y, my_node_points[comp_node_index].x))
+						true_node = false;
+					// remove the points whose radius crossed ..
+					// if(distance_map.at<unsigned char>(my_node_points[current_node_index].y, my_node_points[current_node_index].x) == distance_map.at<unsigned char>(my_node_points[comp_node_index].y, my_node_points[comp_node_index].x))
+					// {
+					// 	bool compare_nodes = true;
+					// 	int compare_range = 1;
+					// 	do{
+					// 		int my_neighbor_count_current = 0;	
+					// 		int my_neighbor_count_comp = 0;	// variable to save the number of neighbors for each point
+					// 		// check 3x3 region around current pixel
+					// 		for (int row_counter = -compare_range; row_counter <= compare_range; row_counter++)
+					// 		{
+					// 			for (int column_counter = -compare_range; column_counter <= compare_range; column_counter++)
+					// 			{
+					// 				// don't check the point itself
+					// 				if (row_counter == 0 && column_counter == 0)
+					// 					continue;
+
+					// 				//check if neighbors are colored with the voronoi-color
+					// 				if (voronoi_map_backup.at<unsigned char>(my_node_points[current_node_index].y + row_counter, my_node_points[current_node_index].x + column_counter) == 127)
+					// 				{
+					// 					my_neighbor_count_current++;
+					// 				}
+					// 			}
+					// 		}
+					// 		for (int row_counter = -compare_range; row_counter <= compare_range; row_counter++)
+					// 		{
+					// 			for (int column_counter = -compare_range; column_counter <= compare_range; column_counter++)
+					// 			{
+					// 				// don't check the point itself
+					// 				if (row_counter == 0 && column_counter == 0)
+					// 					continue;
+
+					// 				//check if neighbors are colored with the voronoi-color
+					// 				if (voronoi_map_backup.at<unsigned char>(my_node_points[comp_node_index].y + row_counter, my_node_points[comp_node_index].x + column_counter) == 127)
+					// 				{
+					// 					my_neighbor_count_comp++;
+					// 				}
+					// 			}
+					// 		}
+					// 		if(my_neighbor_count_current != my_neighbor_count_comp)
+					// 		{
+					// 			compare_nodes = false;
+					// 			if(my_neighbor_count_current < my_neighbor_count_comp)
+					// 				true_node = false;
+					// 		}
+					// 		else
+					// 		{
+					// 			compare_range ++;
+					// 		}
+							
+					// 	}while(compare_nodes);
+						
+					// }
+				}
+			}
+		}
+		if(true_node)
+			my_true_node_points.push_back(my_node_points[current_node_index]);
+	}
+
+std::cout << "true node size: " << my_true_node_points.size() << std::endl;
+	// add some corner points for ray segment
+	//find special nodes
+	for (int v = 3; v < voronoi_map_backup.rows-3; v++)
+	{
+		for (int u = 3; u < voronoi_map_backup.cols-3; u++)
+		{
+			if (voronoi_map_backup.at<unsigned char>(v, u) == 127)
+			{
+				int neighbor_count = 0;	// variable to save the number of neighbors for each point
+				// check 3x3 region around current pixel
+				for (int row_counter = -3; row_counter <= 3; row_counter++)
+				{
+					for (int column_counter = -3; column_counter <= 3; column_counter++)
+					{
+						// don't check the point itself
+						if (row_counter == 0 && column_counter == 0)
+							continue;
+
+						//check if neighbors are colored with the voronoi-color
+						if (voronoi_map_backup.at<unsigned char>(v + row_counter, u + column_counter) == 127)
+						{
+							neighbor_count++;
+						}
+					}
+				}
+				if (neighbor_count < 6)
+				{
+					my_true_node_points.push_back(cv::Point(u,v));
+				}
+			}
+		}
+	}
+std::cout << "true node size after corner added: " << my_true_node_points.size() << std::endl;
+
+
+	// cv::Mat display_test = map_to_be_labeled.clone();
+	// for (size_t i=0; i<my_true_node_points.size(); ++i)
+	// 	cv::circle(display_test, my_true_node_points[i], 2, cv::Scalar(128), -1);
+	// imwrite("my_true_node_points.png", display_test);
+	// std::cout << "my_true_node_points.size(): " << my_true_node_points.size() << std::endl;
+
+//sort the node points
+for(int i = 0; i < my_true_node_points.size(); i++)
+{
+	for(int j = i+1; j < my_true_node_points.size(); j++)
+	{
+		bool compare_nodes = true;
+		int compare_range = 1;
+		do{
+			int my_neighbor_count_current = 0;	
+			int my_neighbor_count_comp = 0;	// variable to save the number of neighbors for each point
+			// check 3x3 region around current pixel
+			for (int row_counter = -compare_range; row_counter <= compare_range; row_counter++)
+			{
+				for (int column_counter = -compare_range; column_counter <= compare_range; column_counter++)
+				{
+					// don't check the point itself
+					if (row_counter == 0 && column_counter == 0)
+						continue;
+
+					//check if neighbors are colored with the voronoi-color
+					if (voronoi_map_backup.at<unsigned char>(my_node_points[i].y + row_counter, my_node_points[i].x + column_counter) == 127)
+					{
+						my_neighbor_count_current++;
+					}
+				}
+			}
+			for (int row_counter = -compare_range; row_counter <= compare_range; row_counter++)
+			{
+				for (int column_counter = -compare_range; column_counter <= compare_range; column_counter++)
+				{
+					// don't check the point itself
+					if (row_counter == 0 && column_counter == 0)
+						continue;
+
+					//check if neighbors are colored with the voronoi-color
+					if (voronoi_map_backup.at<unsigned char>(my_node_points[j].y + row_counter, my_node_points[j].x + column_counter) == 127)
+					{
+						my_neighbor_count_comp++;
+					}
+				}
+			}
+			if(my_neighbor_count_current != my_neighbor_count_comp)
+			{
+				compare_nodes = false;
+				if(my_neighbor_count_current < my_neighbor_count_comp)
+				{
+					cv::Point temp = my_true_node_points[i];
+					my_true_node_points[i] = my_true_node_points[j];
+					my_true_node_points[j] = temp;
+				}
+			}
+			else
+			{
+				compare_range ++;
+			}
+			
+		}while(compare_nodes);
+	} 
+} 
+
+
+// draw circle around node_points, without overlap
+// 	std::vector < cv::Scalar > already_used_colors; //saving-vector to save the already used coloures
+
+// 	std::vector<Room> rooms; //Vector to save the rooms in this map
+// std::vector<cv::Point> drawed_node_points; //variable for node point extraction
+// std::vector<float> drawed_node_points_radius;
+// 	//1. Erode map one time, so small gaps are closed
+// //	cv::erode(voronoi_map_, voronoi_map_, cv::Mat(), cv::Point(-1, -1), 1);
+// cv::Mat node_grow_map = map_to_be_labeled.clone();
+// 	for (int i = 0; i < my_true_node_points.size(); i++)
+// 	{ 
+// 		bool draw = true;
+// 		bool cut = false;
+// 		float circle_radiusi = distance_map.at<unsigned char>(my_true_node_points[i].y, my_true_node_points[i].x);
+// 		float cut_radius = 10000;
+// 		for (int j = 0; j < drawed_node_points.size(); j++)
+// 		{
+// 			const double vector_x = my_true_node_points[i].x - drawed_node_points[j].x;
+// 			const double vector_y = my_true_node_points[i].y - drawed_node_points[j].y;
+// 			const double node_point_distance = std::sqrt(vector_x*vector_x + vector_y*vector_y);
+
+// 			float circle_radiusj = drawed_node_points_radius[j];
+// 			if(node_point_distance <= circle_radiusj)
+// 				draw = false;
+// 			else if(node_point_distance < circle_radiusj + circle_radiusi)
+// 			{
+// 				cut = true;
+// 				if( (node_point_distance - circle_radiusj) < cut_radius)
+// 					cut_radius = node_point_distance - circle_radiusj;
+// 			}
+				
+			
+// 		}
+// 		if(draw && !cut)
+// 		{
+// 			if(circle_radiusi > robot_width/map_resolution_from_subscription)
+// 			{
+// 				cv::circle(node_grow_map, my_true_node_points[i], circle_radiusi, cv::Scalar(0), 2);
+// 				drawed_node_points.push_back(my_true_node_points[i]);
+// 				drawed_node_points_radius.push_back(circle_radiusi);
+// 			}	
+// 		}
+			
+// 		if(draw && cut)
+// 		{
+// 			if(cut_radius > robot_width/map_resolution_from_subscription)
+// 			{
+// 				cv::circle(node_grow_map, my_true_node_points[i], cut_radius, cv::Scalar(0), 2);
+// 				drawed_node_points.push_back(my_true_node_points[i]);
+// 				drawed_node_points_radius.push_back(cut_radius);
+// 			}
+// 		}
+// 	}
+// 	imwrite("node_grow_map.png", node_grow_map);
+	//std::cout << "my_true_node_points.size(): " << my_true_node_points.size() << std::endl;
+
+
+}
+
+
+
+
+
 	//*************III. draw the critical lines from every found critical Point to its two closest zero-pixel****************
 	//
 	//map to draw the critical lines and fill the map with random colors
-	map_to_be_labeled.convertTo(segmented_map, CV_32SC1, 256, 0); // rescale to 32 int, 255 --> 255*256 = 65280
+	// map_to_be_labeled.convertTo(segmented_map, CV_32SC1, 256, 0); // rescale to 32 int, 255 --> 255*256 = 65280
 
-	// 1. Get the points of the contour, which are the possible closest points for a critical point
-	//clone the map to extract the contours, because after using OpenCV find-/drawContours
-	//the map will be different from the original one
-	cv::Mat temporary_map_to_extract_the_contours = segmented_map.clone();
-	std::vector < std::vector<cv::Point> > contours;
-	cv::findContours(temporary_map_to_extract_the_contours, contours, CV_RETR_CCOMP, CV_CHAIN_APPROX_NONE);
+	// // 1. Get the points of the contour, which are the possible closest points for a critical point
+	// //clone the map to extract the contours, because after using OpenCV find-/drawContours
+	// //the map will be different from the original one
+	// cv::Mat temporary_map_to_extract_the_contours = segmented_map.clone();
+	// std::vector < std::vector<cv::Point> > contours;
+	// cv::findContours(temporary_map_to_extract_the_contours, contours, CV_RETR_CCOMP, CV_CHAIN_APPROX_NONE);
 
 	// // 2. Get the basis-points for each critical-point
 	// std::vector<cv::Point> basis_points_1, basis_points_2;
@@ -293,237 +1104,6 @@ std::cout << "critical_points.size(): " << critical_points.size() << std::endl;
 	// }
 
 	//find special nodes
-	std::vector<cv::Point> my_node_points; //variable for node point extraction
-	std::vector<cv::Point> my_true_node_points; //variable for node point extraction
-	for (int v = 1; v < voronoi_map_backup.rows-1; v++)
-	{
-		for (int u = 1; u < voronoi_map_backup.cols-1; u++)
-		{
-			if (voronoi_map_backup.at<unsigned char>(v, u) == 127)
-			{
-				int neighbor_count = 0;	// variable to save the number of neighbors for each point
-				// check 3x3 region around current pixel
-				for (int row_counter = -1; row_counter <= 1; row_counter++)
-				{
-					for (int column_counter = -1; column_counter <= 1; column_counter++)
-					{
-						// don't check the point itself
-						if (row_counter == 0 && column_counter == 0)
-							continue;
-
-						//check if neighbors are colored with the voronoi-color
-						if (voronoi_map_backup.at<unsigned char>(v + row_counter, u + column_counter) == 127)
-						{
-							neighbor_count++;
-						}
-					}
-				}
-				if (neighbor_count > 2)
-				{
-					my_node_points.push_back(cv::Point(u,v));
-				}
-			}
-		}
-	}
-	std::cout << "my_original_node_points.size(): " << my_node_points.size() << std::endl;
-	for(int current_node_index = 0; current_node_index < my_node_points.size(); current_node_index ++)
-	{
-		bool true_node = true;
-		for(int comp_node_index = 0; comp_node_index < my_node_points.size(); comp_node_index ++)
-		{
-			if(comp_node_index != current_node_index)
-			{
-				const double vector_x = my_node_points[current_node_index].x - my_node_points[comp_node_index].x;
-				const double vector_y = my_node_points[current_node_index].y - my_node_points[comp_node_index].y;
-				const double node_point_distance = std::sqrt(vector_x*vector_x + vector_y*vector_y);
-
-				//only exist one node in 7*7 grids
-				if(node_point_distance < 3)
-				{
-					if(distance_map.at<unsigned char>(my_node_points[current_node_index].y, my_node_points[current_node_index].x) < distance_map.at<unsigned char>(my_node_points[comp_node_index].y, my_node_points[comp_node_index].x))
-						true_node = false;
-					if(distance_map.at<unsigned char>(my_node_points[current_node_index].y, my_node_points[current_node_index].x) == distance_map.at<unsigned char>(my_node_points[comp_node_index].y, my_node_points[comp_node_index].x))
-					{
-						bool compare_nodes = true;
-						int compare_range = 1;
-						do{
-							int my_neighbor_count_current = 0;	
-							int my_neighbor_count_comp = 0;	// variable to save the number of neighbors for each point
-							// check 3x3 region around current pixel
-							for (int row_counter = -compare_range; row_counter <= compare_range; row_counter++)
-							{
-								for (int column_counter = -compare_range; column_counter <= compare_range; column_counter++)
-								{
-									// don't check the point itself
-									if (row_counter == 0 && column_counter == 0)
-										continue;
-
-									//check if neighbors are colored with the voronoi-color
-									if (voronoi_map_backup.at<unsigned char>(my_node_points[current_node_index].y + row_counter, my_node_points[current_node_index].x + column_counter) == 127)
-									{
-										my_neighbor_count_current++;
-									}
-								}
-							}
-							for (int row_counter = -compare_range; row_counter <= compare_range; row_counter++)
-							{
-								for (int column_counter = -compare_range; column_counter <= compare_range; column_counter++)
-								{
-									// don't check the point itself
-									if (row_counter == 0 && column_counter == 0)
-										continue;
-
-									//check if neighbors are colored with the voronoi-color
-									if (voronoi_map_backup.at<unsigned char>(my_node_points[comp_node_index].y + row_counter, my_node_points[comp_node_index].x + column_counter) == 127)
-									{
-										my_neighbor_count_comp++;
-									}
-								}
-							}
-							if(my_neighbor_count_current != my_neighbor_count_comp)
-							{
-								compare_nodes = false;
-								if(my_neighbor_count_current < my_neighbor_count_comp)
-									true_node = false;
-							}
-							else
-							{
-								compare_range ++;
-							}
-							
-						}while(compare_nodes);
-						
-					}
-				}
-			}
-		}
-		if(true_node)
-			my_true_node_points.push_back(my_node_points[current_node_index]);
-	}
-	cv::Mat display_test = map_to_be_labeled.clone();
-	for (size_t i=0; i<my_true_node_points.size(); ++i)
-		cv::circle(display_test, my_true_node_points[i], 2, cv::Scalar(128), -1);
-	imwrite("my_true_node_points.png", display_test);
-	std::cout << "my_true_node_points.size(): " << my_true_node_points.size() << std::endl;
-
-//sort the node points
-for(int i = 0; i < my_true_node_points.size(); i++)
-{
-	for(int j = i+1; j < my_true_node_points.size(); j++)
-	{
-		bool compare_nodes = true;
-		int compare_range = 1;
-		do{
-			int my_neighbor_count_current = 0;	
-			int my_neighbor_count_comp = 0;	// variable to save the number of neighbors for each point
-			// check 3x3 region around current pixel
-			for (int row_counter = -compare_range; row_counter <= compare_range; row_counter++)
-			{
-				for (int column_counter = -compare_range; column_counter <= compare_range; column_counter++)
-				{
-					// don't check the point itself
-					if (row_counter == 0 && column_counter == 0)
-						continue;
-
-					//check if neighbors are colored with the voronoi-color
-					if (voronoi_map_backup.at<unsigned char>(my_node_points[i].y + row_counter, my_node_points[i].x + column_counter) == 127)
-					{
-						my_neighbor_count_current++;
-					}
-				}
-			}
-			for (int row_counter = -compare_range; row_counter <= compare_range; row_counter++)
-			{
-				for (int column_counter = -compare_range; column_counter <= compare_range; column_counter++)
-				{
-					// don't check the point itself
-					if (row_counter == 0 && column_counter == 0)
-						continue;
-
-					//check if neighbors are colored with the voronoi-color
-					if (voronoi_map_backup.at<unsigned char>(my_node_points[j].y + row_counter, my_node_points[j].x + column_counter) == 127)
-					{
-						my_neighbor_count_comp++;
-					}
-				}
-			}
-			if(my_neighbor_count_current != my_neighbor_count_comp)
-			{
-				compare_nodes = false;
-				if(my_neighbor_count_current < my_neighbor_count_comp)
-				{
-					cv::Point temp = my_true_node_points[i];
-					my_true_node_points[i] = my_true_node_points[j];
-					my_true_node_points[j] = temp;
-				}
-			}
-			else
-			{
-				compare_range ++;
-			}
-			
-		}while(compare_nodes);
-	} 
-} 
-
-
-
-	std::vector < cv::Scalar > already_used_colors; //saving-vector to save the already used coloures
-
-	std::vector<Room> rooms; //Vector to save the rooms in this map
-std::vector<cv::Point> drawed_node_points; //variable for node point extraction
-std::vector<float> drawed_node_points_radius;
-	//1. Erode map one time, so small gaps are closed
-//	cv::erode(voronoi_map_, voronoi_map_, cv::Mat(), cv::Point(-1, -1), 1);
-cv::Mat node_grow_map = map_to_be_labeled.clone();
-	for (int i = 0; i < my_true_node_points.size(); i++)
-	{ 
-		bool draw = true;
-		bool cut = false;
-		float circle_radiusi = distance_map.at<unsigned char>(my_true_node_points[i].y, my_true_node_points[i].x);
-		float cut_radius = 10000;
-		for (int j = 0; j < drawed_node_points.size(); j++)
-		{
-			const double vector_x = my_true_node_points[i].x - drawed_node_points[j].x;
-			const double vector_y = my_true_node_points[i].y - drawed_node_points[j].y;
-			const double node_point_distance = std::sqrt(vector_x*vector_x + vector_y*vector_y);
-
-			float circle_radiusj = drawed_node_points_radius[j];
-			if(node_point_distance <= circle_radiusj)
-				draw = false;
-			else if(node_point_distance < circle_radiusj + circle_radiusi)
-			{
-				cut = true;
-				if( (node_point_distance - circle_radiusj) < cut_radius)
-					cut_radius = node_point_distance - circle_radiusj;
-			}
-				
-			
-		}
-		if(draw && !cut)
-		{
-			if(circle_radiusi > robot_width/map_resolution_from_subscription)
-			{
-				cv::circle(node_grow_map, my_true_node_points[i], circle_radiusi, cv::Scalar(0), 2);
-				drawed_node_points.push_back(my_true_node_points[i]);
-				drawed_node_points_radius.push_back(circle_radiusi);
-			}	
-		}
-			
-		if(draw && cut)
-		{
-			if(cut_radius > robot_width/map_resolution_from_subscription)
-			{
-				cv::circle(node_grow_map, my_true_node_points[i], cut_radius, cv::Scalar(0), 2);
-				drawed_node_points.push_back(my_true_node_points[i]);
-				drawed_node_points_radius.push_back(cut_radius);
-			}
-		}
-	}
-	imwrite("node_grow_map.png", node_grow_map);
-	//std::cout << "my_true_node_points.size(): " << my_true_node_points.size() << std::endl;
-
-
 
 
 
@@ -664,63 +1244,3 @@ cv::Mat node_grow_map = map_to_be_labeled.clone();
 // 	std::cout << "segment_result size " << segment_result.size() << " segment line.\n";
 
 // 	draw_segmented_line(segmented_map, segment_result, "segmented_line.png");
-
-}
-
-
-void VoronoiSegmentation::draw_segmented_line(const cv::Mat& map_to_be_draw, std::vector<std::vector<cv::Point>>& segment_result, const char *input_name)
-{
-	if (map_to_be_draw.type()!=CV_32SC1)
-	{
-		std::cout << "Error: map_to_be_draw: provided image is not of type CV_32SC1." << std::endl;
-		return;
-	}
-
-	std::vector <cv::Vec3b> used_colors;
-
-	cv::Mat drawed_segmented_map = cv::Mat::zeros(map_to_be_draw.rows,map_to_be_draw.cols,CV_8UC3);
-	for (int row = 0; row < map_to_be_draw.rows; row++)
-	{
-		for (int column = 1; column < map_to_be_draw.cols; column++)
-		{
-			if( map_to_be_draw.at<int>(row, column) > 0 )
-			{
-				cv::Vec3b color;
-				color[0] = 255;
-				color[1] = 255;
-				color[2] = 255;
-				drawed_segmented_map.at<cv::Vec3b>(row, column) = color;
-			}
-		}
-	}
-
-	for(int i = 0; i < segment_result.size(); i ++)
-	{
-		std::vector<cv::Point> segment_line = segment_result[i];
-		cv::Vec3b color;
-		bool drawn = false;
-		int loop_counter = 0;
-		do
-		{
-			loop_counter++;
-			color[0] = rand() % 255;
-			color[1] = rand() % 255;
-			color[2] = rand() % 255;
-			if (!contains(used_colors, color) || loop_counter > 100)
-			{
-				drawn = true;
-				used_colors.push_back(color);
-			}
-		} while (!drawn);
-
-		for(int j = 0; j < segment_line.size(); j ++)
-		{
-			
-			int x = segment_line[j].x;
-			int y = segment_line[j].y;
-			cv::circle(drawed_segmented_map, segment_line[j], 2, color, -1);
-			//drawed_segmented_map.at<cv::Vec3b>(y, x) = color;
-		}
-	}
-	imwrite(input_name, drawed_segmented_map);
-}

@@ -567,15 +567,17 @@ draw_segmented_map(map_to_merge_rooms, rooms, "f.png");
 
 void AbstractVoronoiSegmentation::draw_segmented_map(const cv::Mat& segmented_map_to_be_draw, std::vector<Room>& rooms, const char *input_name)
 {
-	if (segmented_map_to_be_draw.type()!=CV_32SC1)
-	{
-		std::cout << "Error: draw_segmented_map: provided image is not of type CV_32SC1." << std::endl;
-		return;
-	}
+	// if (segmented_map_to_be_draw.type()!=CV_32SC1)
+	// {
+	// 	std::cout << "Error: draw_segmented_map: provided image is not of type CV_32SC1." << std::endl;
+	// 	return;
+	// }
 
 	std::vector < cv::Vec3b > already_used_colors;
 	
 	cv::Mat drawed_segmented_map = cv::Mat::zeros(segmented_map_to_be_draw.rows,segmented_map_to_be_draw.cols,CV_8UC3);
+	imwrite("test_first_draw.png", drawed_segmented_map);
+
 	for (int row = 0; row < segmented_map_to_be_draw.rows; row++)
 	{
 		for (int column = 1; column < segmented_map_to_be_draw.cols; column++)
@@ -590,6 +592,7 @@ void AbstractVoronoiSegmentation::draw_segmented_map(const cv::Mat& segmented_ma
 			}
 		}
 	}
+	imwrite("test_medium_draw.png", drawed_segmented_map);
 
 	for(int i = 0; i < rooms.size(); i ++)
 	{
@@ -614,6 +617,7 @@ void AbstractVoronoiSegmentation::draw_segmented_map(const cv::Mat& segmented_ma
 		
 		
 		std::vector<cv::Point> room_members = rooms[i].getMembers();
+		std::cout << i <<" member size: " << room_members.size() <<std::endl;
 		for(int j = 0; j < room_members.size(); j ++)
 		{
 			int x = room_members[j].x;
