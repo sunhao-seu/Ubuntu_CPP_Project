@@ -578,16 +578,25 @@ void AbstractVoronoiSegmentation::draw_segmented_map(const cv::Mat& segmented_ma
 	cv::Mat drawed_segmented_map = cv::Mat::zeros(segmented_map_to_be_draw.rows,segmented_map_to_be_draw.cols,CV_8UC3);
 	imwrite("test_first_draw.png", drawed_segmented_map);
 
+
+
+	cv::Vec3b color;
+	//for overlap color
+	color[0] = 255;
+	color[1] = 0;
+	color[2] = 0;
+already_used_colors.push_back(color);
+
+	color[0] = 255;
+	color[1] = 255;
+	color[2] = 255;
+already_used_colors.push_back(color);
 	for (int row = 0; row < segmented_map_to_be_draw.rows; row++)
 	{
 		for (int column = 1; column < segmented_map_to_be_draw.cols; column++)
 		{
 			if( segmented_map_to_be_draw.at<int>(row, column) > 0 )
 			{
-				cv::Vec3b color;
-				color[0] = 255;
-				color[1] = 255;
-				color[2] = 255;
 				drawed_segmented_map.at<cv::Vec3b>(row, column) = color;
 			}
 		}
@@ -599,25 +608,38 @@ void AbstractVoronoiSegmentation::draw_segmented_map(const cv::Mat& segmented_ma
 		cv::Vec3b color;
 		bool drawn = false;
 		
-		int loop_counter = 0;
-		do
+		if(i == (rooms.size()-1) )
 		{
-			loop_counter++;
-			color[0] = rand() % 255;
-			color[1] = rand() % 255;
-			color[2] = rand() % 255;
-			if (!contains(already_used_colors, color) || loop_counter > 100)
+			//for overlap color
+			color[0] = 255;
+			color[1] = 0;
+			color[2] = 0;
+		}
+		else
+		{
+			int loop_counter = 0;
+			do
 			{
-				drawn = true;
-				already_used_colors.push_back(color);
-			}
-			
+				loop_counter++;
+				color[0] = rand() % 255;
+				color[1] = rand() % 255;
+				color[2] = rand() % 255;
+				if (!contains(already_used_colors, color) || loop_counter > 100)
+				{
+					drawn = true;
+					already_used_colors.push_back(color);
+				}
+				
 
-		} while (!drawn);
+			} while (!drawn);
+		}
+		
+		
 		
 		
 		std::vector<cv::Point> room_members = rooms[i].getMembers();
-		std::cout << i <<" member size: " << room_members.size() <<std::endl;
+		if(room_members.size() > 10)
+			std::cout << i <<" member size: " << room_members.size() <<std::endl;
 		for(int j = 0; j < room_members.size(); j ++)
 		{
 			int x = room_members[j].x;

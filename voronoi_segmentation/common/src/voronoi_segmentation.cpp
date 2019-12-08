@@ -106,9 +106,10 @@ std::cout << "critical_points.size(): " << critical_points.size() << std::endl;
 
 	std::vector<cv::Point> my_node_points; //variable for node point extraction
 	Find_my_node_points(voronoi_map_backup, distance_map, my_node_points);	
+	Find_contour_points(map_to_be_labeled, distance_map, my_node_points);
 	cv::Mat display_test = map_to_be_labeled.clone();
 	for (size_t i=0; i<my_node_points.size(); ++i)
-		cv::circle(display_test, my_node_points[i], 2, cv::Scalar(128), -1);
+		cv::circle(display_test, my_node_points[i], 1, cv::Scalar(128), -1);
 	imwrite("my_true_node_points.png", display_test);
 	std::cout << "my_true_node_points.size(): " << my_node_points.size() << std::endl;
 
@@ -183,6 +184,10 @@ std::cout << "critical_points.size(): " << critical_points.size() << std::endl;
 
 	}
 
+	Sew_segmented_map(map_to_be_labeled, merged_ray_map);
+	Sew_segmented_map(map_to_be_labeled, merged_ray_map);
+	Sew_segmented_map(map_to_be_labeled, merged_ray_map);
+
 
 	std::vector<Room> rooms; //Vector to save the rooms in this map
 	for(int roomid = 1; roomid < last_area_id; roomid++)
@@ -207,8 +212,18 @@ std::cout << "critical_points.size(): " << critical_points.size() << std::endl;
 		//SegmentArea(current_point, ray_cast_occupy_map, map_to_be_labeled);
 	}
 
+	// Room current_room(last_area_id);
+	// for (int i = 0; i < overlap_points.size(); i++)
+	// {
+	// 	current_room.insertMemberPoint(overlap_points[i], map_resolution_from_subscription);
+	// }
+	// rooms.push_back(current_room);
+
 	draw_segmented_map(merged_ray_map, rooms, "ray_segmented_map.png");
 	std::cout << "Found " << rooms.size() << " rooms.\n";
+
+
+
 
 }
 
@@ -236,10 +251,128 @@ std::cout << "critical_points.size(): " << critical_points.size() << std::endl;
 
 
 
+void VoronoiSegmentation::Sew_segmented_map(const cv::Mat& map_to_be_labeled, cv::Mat& merged_ray_map)
+{
+	bool merge_map_flag = true;
+	int loop_count_down = 100;
+	while(merge_map_flag && loop_count_down > 0) 
+	{
+		loop_count_down --;
+		std::vector<cv::Point>  points_tobe_sewed;
+		//last_area_id++;
+		for (int v = 0; v < merged_ray_map.rows; v++)
+		{
+			for (int u = 0; u < merged_ray_map.cols; u++)
+			{
+				unsigned int pixel_merged_map = merged_ray_map.at<int>(v, u);
+				unsigned int pixel_origin_map = map_to_be_labeled.at<unsigned char>(v, u);
+				if(pixel_origin_map != 0 && pixel_merged_map == 0)
+				{
+					points_tobe_sewed.push_back(cv::Point(u,v));
+					//merged_ray_map.at<int>(v, u) = last_area_id;
+				}
+			}
+		}
+		std::cout << "points_tobe_sewed: " << points_tobe_sewed.size() << std::endl;
+		if(points_tobe_sewed.size() == 0)
+			merge_map_flag = false;
+
+		//for(std::vector<cv::Point>::iterator it = points_tobe_sewed.begin(); it != points_tobe_sewed.end();) 
+		for(int sewed_index = 0; sewed_index < points_tobe_sewed.size(); sewed_index ++)
+		{
+			// int current_x = it->x;
+			// int current_y = it->y;
+			int current_x = points_tobe_sewed[sewed_index].x;
+			int current_y = points_tobe_sewed[sewed_index].y;
+			std::vector<int> pixel_id_set;
+			int neighbor_number = 0;
+			int pixel_id_set_count[9];
+			memset(pixel_id_set_count, 0, 9*sizeof(int)); //
+
+			for(int i = -1; i <= 1; i ++)
+			{
+				for(int j = -1; j <= 1; j ++)
+				{
+					int searching_x = current_x + i;
+					int searching_y = current_y + j;
+					if (searching_x >= 0 && searching_y >= 0 && searching_y < merged_ray_map.rows && searching_x < merged_ray_map.cols )
+					{
+						int searching_pixel = merged_ray_map.at<int>(searching_y, searching_x);
+						if(searching_pixel > 0)
+						{
+							std::vector<int>::iterator iter=std::find(pixel_id_set.begin(),pixel_id_set.end(),searching_pixel);
+							if(iter==pixel_id_set.end())
+							{
+								pixel_id_set.push_back(searching_pixel);
+								pixel_id_set_count[neighbor_number] = pixel_id_set_count[neighbor_number] + 1;
+								neighbor_number ++;
+							}
+							else
+							{
+								int index = std::distance(pixel_id_set.begin(), iter);
+								pixel_id_set_count[index] = pixel_id_set_count[index] + 1;
+							}
+						}
+					}
+				}
+			}
+
+			//if not surrounded by 0, then set the pixel to the  biggest surround pixel...
+			int max_surround_pixel_count_index = 0;
+			for(int i = 0; i < neighbor_number;i++)
+			{
+				if(pixel_id_set_count[i] > pixel_id_set_count[max_surround_pixel_count_index])
+					max_surround_pixel_count_index = i;
+			}
+			if(pixel_id_set_count[max_surround_pixel_count_index] > 0)
+				merged_ray_map.at<int>(current_y, current_x) = pixel_id_set[max_surround_pixel_count_index];
+
+		}
+	}
+
+
+}
 
 
 
+void VoronoiSegmentation::Find_contour_points(const cv::Mat& original_map, const cv::Mat& distance_map, std::vector<cv::Point>& contour_points)
+{
 
+	for (int v = 0; v < original_map.rows; v++)
+	{
+		for (int u = 0; u < original_map.cols; u++)
+		{
+			int distance_to_obstacle = (int) distance_map.at<unsigned char>(v, u);
+			int distance_to_obstacle_desire = 4;
+			if(original_map.at<unsigned char>(v, u) != 0 && distance_to_obstacle > distance_to_obstacle_desire-0.5 && distance_to_obstacle < distance_to_obstacle_desire + 0.5)
+			{
+				int wall_neighbors = 0;
+				for(int i = -distance_to_obstacle_desire; i <= distance_to_obstacle_desire; i ++)
+				{
+					for(int j = -distance_to_obstacle_desire; j <= distance_to_obstacle_desire; j ++)
+					{
+						//nearest 2 grid
+						if((abs(i) + abs(j)) == distance_to_obstacle_desire)
+						{
+							int searching_x = u + i;
+							int searching_y = v + j;
+							int searching_pixel = original_map.at<unsigned char>(searching_y, searching_x);
+							if(searching_pixel == 0)
+							{
+								wall_neighbors ++;
+							}
+						}
+						
+					}
+				}
+
+				if(wall_neighbors >= 2)
+				 	contour_points.push_back(cv::Point(u,v));
+
+			}
+		}
+	}
+}
 
 
 
@@ -851,18 +984,19 @@ void VoronoiSegmentation::Find_my_node_points(const cv::Mat& voronoi_map_backup,
 
 std::cout << "true node size: " << my_true_node_points.size() << std::endl;
 	// add some corner points for ray segment
-	//find special nodes
-	for (int v = 3; v < voronoi_map_backup.rows-3; v++)
+	//find special nodes.  dead end point on voronoi graph.
+	int dead_end_range = 1;
+	for (int v = dead_end_range; v < voronoi_map_backup.rows-dead_end_range; v++)
 	{
-		for (int u = 3; u < voronoi_map_backup.cols-3; u++)
+		for (int u = dead_end_range; u < voronoi_map_backup.cols-dead_end_range; u++)
 		{
 			if (voronoi_map_backup.at<unsigned char>(v, u) == 127)
 			{
 				int neighbor_count = 0;	// variable to save the number of neighbors for each point
 				// check 3x3 region around current pixel
-				for (int row_counter = -3; row_counter <= 3; row_counter++)
+				for (int row_counter = -dead_end_range; row_counter <= dead_end_range; row_counter++)
 				{
-					for (int column_counter = -3; column_counter <= 3; column_counter++)
+					for (int column_counter = -dead_end_range; column_counter <= dead_end_range; column_counter++)
 					{
 						// don't check the point itself
 						if (row_counter == 0 && column_counter == 0)
@@ -875,7 +1009,7 @@ std::cout << "true node size: " << my_true_node_points.size() << std::endl;
 						}
 					}
 				}
-				if (neighbor_count < 6)
+				if (neighbor_count < 2)
 				{
 					my_true_node_points.push_back(cv::Point(u,v));
 				}

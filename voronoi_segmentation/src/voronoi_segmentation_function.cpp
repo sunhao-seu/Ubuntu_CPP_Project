@@ -271,7 +271,7 @@ void occupy_qimage_to_result(const char *input_name)
     int max_iterations_ = 1000;
     double min_critical_point_distance_factor_ =  1.3;
     double max_area_for_merging_ =  1.3;
-    double map_resolution = 0.05;
+    double map_resolution = 0.2;
     cv::Mat segmented_map;
 
 std::cout << "before voronoi " << std::endl;

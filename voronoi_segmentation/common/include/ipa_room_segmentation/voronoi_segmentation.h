@@ -32,7 +32,11 @@ public:
 
 	void Find_my_node_points(const cv::Mat& voronoi_map_backup, const cv::Mat& distance_map, std::vector<cv::Point>& my_true_node_points);
 
+	void Find_contour_points(const cv::Mat& original_map, const cv::Mat& distance_map, std::vector<cv::Point>& contour_points);
+
 	void ray_occupy_map_func(cv::Point current_point, cv::Mat& ray_cast_occupy_map,  const cv::Mat& original_map);
 	
 	void SegmentArea(cv::Point node_point, const cv::Mat& ray_cast_occupy_map, cv::Mat& merged_ray_map, std::vector<cv::Point>& overlap_points, int& last_area_id);
+
+	void Sew_segmented_map(const cv::Mat& map_to_be_labeled, cv::Mat& merged_ray_map);
 };
