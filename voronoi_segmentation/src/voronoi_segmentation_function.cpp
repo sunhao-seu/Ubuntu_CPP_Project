@@ -264,6 +264,15 @@ void occupy_map_to_cvimage(nav_msgs::OccupancyGrid &occupancy_map, const char *i
 void occupy_qimage_to_result(const char *input_name)
 {
     cv::Mat original_img = cv::imread(input_name,0);
+    imwrite("original_img.png", original_img);
+
+    cv::Mat pure_contour_img;
+    extract_outer_contour(original_img, pure_contour_img);
+    imwrite("my_contour_map.png", pure_contour_img);
+
+    // cv::Mat smooth_contour_img;
+    // smooth_outer_contour(pure_contour_img, smooth_contour_img);
+    // imwrite("my_contour_map.png", smooth_contour_img);
 
     double room_upper_limit_voronoi_ = 1200.0;
     double room_lower_limit_voronoi_ = 2;
@@ -276,8 +285,196 @@ void occupy_qimage_to_result(const char *input_name)
 
 std::cout << "before voronoi " << std::endl;
     VoronoiSegmentation voronoi_segmentation; //voronoi segmentation method
-	voronoi_segmentation.segmentMap(original_img, segmented_map, map_resolution, room_lower_limit_voronoi_, room_upper_limit_voronoi_,
+	voronoi_segmentation.segmentMap(pure_contour_img, segmented_map, map_resolution, room_lower_limit_voronoi_, room_upper_limit_voronoi_,
 		voronoi_neighborhood_index_, max_iterations_, min_critical_point_distance_factor_, max_area_for_merging_, 0);
 
 std::cout << "end voronoi " << std::endl;
 }
+
+
+
+
+
+
+
+void smooth_outer_contour(const cv::Mat& original_image, cv::Mat& smooth_contour_map)
+{    
+    smooth_contour_map = original_image.clone();
+    int smooth_point_number = 0;
+    for (int v = 0; v < original_image.rows; v++)
+    {
+        for (int u = 0; u < original_image.cols; u++)
+        {
+            cv::Point current_point;
+            current_point.x = u;
+            current_point.y = v;
+            int current_point_pixel = smooth_contour_map.at<unsigned char>(v, u);
+            int count_black_number = 0;
+            for(int i = -1; i <= 1; i ++)
+            {
+                for(int j = -1; j <= 1; j ++)
+                {
+                    //nearest 1 grid
+                    if((abs(i) + abs(j)) == 1)
+                    {
+                        int searching_x = current_point.x + i;
+                        int searching_y = current_point.y + j;
+                        if (searching_x >= 0 && searching_y >= 0 && searching_y < smooth_contour_map.rows && searching_x < smooth_contour_map.cols && (smooth_contour_map.at<unsigned char>(searching_y, searching_x) == 0))
+                        {
+                            count_black_number++;
+                        }
+                    }
+                }
+            }
+            if( (count_black_number <= 1) && (current_point_pixel == 0) )
+                smooth_contour_map.at<unsigned char>(current_point.y, current_point.x) = 255;
+            if(count_black_number >= 3)
+                smooth_contour_map.at<unsigned char>(current_point.y, current_point.x) = 0;
+
+            if( current_point_pixel != smooth_contour_map.at<unsigned char>(v, u) )
+            {
+                smooth_point_number ++; 
+                if(u > 1)
+                        u = u - 2;
+                if(v > 1)
+                    v = v - 2;
+            } 
+        }
+    }
+    std::cout << "removed " << smooth_point_number << " smooth_point_number points" << std::endl;
+
+}
+
+
+void extract_outer_contour(const cv::Mat& original_image, cv::Mat& pure_contour_map)
+{
+    int noise_points_number = 0;
+    pure_contour_map = original_image.clone();
+    for (int v = 0; v < original_image.rows; v++)
+    {
+        for (int u = 0; u < original_image.cols; u++)
+        {
+            unsigned int pixel_original_map = pure_contour_map.at<unsigned char>(v, u);
+            if(pixel_original_map == 0) // if be black, obstacle
+            {
+                int current_x = u;
+                int current_y = v;
+                bool noise_point = false;
+                std::queue<cv::Point> searching_points_queue;
+                std::vector<cv::Point> total_connected_points;
+                searching_points_queue.push(cv::Point(current_x, current_y));
+                total_connected_points.push_back(cv::Point(current_x, current_y));
+
+                while(searching_points_queue.size() > 0)
+                {
+                    cv::Point current_point = searching_points_queue.front();
+                    for(int i = -1; i <= 1; i ++)
+                    {
+                        for(int j = -1; j <= 1; j ++)
+                        {
+                            //nearest 1 grid
+                            if((abs(i) + abs(j)) == 1)
+                            {
+                                int searching_x = current_point.x + i;
+                                int searching_y = current_point.y + j;
+                                if (searching_x >= 0 && searching_y >= 0 && searching_y < pure_contour_map.rows && searching_x < pure_contour_map.cols && (pure_contour_map.at<unsigned char>(searching_y, searching_x) == 0))
+                                {
+                                    cv::Point searching_point;
+                                    searching_point.x = searching_x;
+                                    searching_point.y = searching_y;
+                                    if(!contains(total_connected_points, searching_point))
+                                    {
+                                        searching_points_queue.push(searching_point);
+                                        total_connected_points.push_back(searching_point);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    searching_points_queue.pop();
+                    if(total_connected_points.size() > 100)
+                    {
+                        break;
+                    }
+                }
+
+                if(total_connected_points.size() < 100)
+                {
+                    noise_point = true;
+                }
+
+                if(noise_point)
+                {
+                    pure_contour_map.at<unsigned char>(current_y, current_x) = 255;
+                    noise_points_number++;
+                    // if(u > 1)
+                    //     u = u - 2;
+                    // if(v > 1)
+                    //     v = v - 2;    
+                }
+
+            }
+
+            
+        }
+    }           
+
+    std::cout << "removed " << noise_points_number << " noise points" << std::endl;
+
+}
+
+///*********************circle wave to find pure free cicle.****************************
+    // int noise_points_number = 0;
+    // pure_contour_map = original_image.clone();
+    // for (int v = 0; v < original_image.rows; v++)
+    // {
+    //     for (int u = 0; u < original_image.cols; u++)
+    //     {
+    //         unsigned int pixel_original_map = pure_contour_map.at<unsigned char>(v, u);
+    //         if(pixel_original_map == 0) // if be black, obstacle
+    //         {
+    //             int current_x = u;
+    //             int current_y = v;
+    //             int search_radius = 1;
+    //             bool noise_point = false;
+    //             while(search_radius < 5)
+    //             {
+    //                 int radius_obstacle_count = 0;
+    //                 for(int i = -search_radius; i <= search_radius; i ++)
+    //                 {
+    //                     for(int j = -search_radius; j <= search_radius; j ++)
+    //                     {
+    //                         int searching_x = current_x + i;
+    //                         int searching_y = current_y + j;
+    //                         float distance_to_current_point = sqrt(i*i + j*j);
+    //                         if (searching_x >= 0 && searching_y >= 0 && searching_y < pure_contour_map.rows && searching_x < pure_contour_map.cols && distance_to_current_point >= search_radius)
+    //                         {
+    //                             if(pure_contour_map.at<unsigned char>(searching_y, searching_x) == 0)
+    //                                 radius_obstacle_count ++;
+    //                         }
+    //                     }
+    //                 }
+    //                 if(radius_obstacle_count >= search_radius*8/4)   //a true obstacle must have at least this number neighbors
+    //                     search_radius ++;
+    //                 else
+    //                 {
+    //                     noise_point = true;
+    //                     break;
+    //                 }
+                        
+    //             }
+
+    //             if(noise_point)
+    //             {
+    //                 pure_contour_map.at<unsigned char>(current_y, current_x) = 255;
+    //                 noise_points_number++;
+    //                 if(u > 1)
+    //                     u = u - 2;
+    //                 if(v > 1)
+    //                     v = v - 2;    
+    //             }
+    //         }
+    //     }
+    // }
+
+    // std::cout << "removed " << noise_points_number << " noise points" << std::endl;

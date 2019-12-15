@@ -57,7 +57,7 @@ void pcdLoadCallback(const ros::TimerEvent&){
   // std::cout << "before occupy_qimage_to_result" << std::endl;  
 
 
-  occupy_qimage_to_result("/home/wolfhao/Pictures/picture/1.png");
+  //occupy_qimage_to_result("/home/wolfhao/Pictures/picture/6.png");
   
   // Pub the point cloud
   // PointCloud cloud = *cloud_load_transform;
@@ -69,20 +69,31 @@ void pcdLoadCallback(const ros::TimerEvent&){
 
 int main(int argc, char** argv)
 {
-  // Make a ROS node, which we'll use to publish copies of the data in the CollisionMap and SDF
-  // and Rviz markers that allow us to visualize them.
-  ros::init(argc, argv, "area_segmentation");
-  // Get a handle to the current node
-  ros::NodeHandle nh;
-  // Create the timer to load pcd
-  ros::Timer estimate_update_timer = nh.createTimer(ros::Duration(5.0), pcdLoadCallback);
-  // Make a publisher for point cloud
-  pcd_pub = nh.advertise<PointCloud>("pcd_pre_processed", 1, false);
-  occupy_map_pub = nh.advertise<nav_msgs::OccupancyGrid>("occupy_map", 1, false);
-  // Make a subscriber for point cloud
- // ros::Subscriber cloud_sub = nh.subscribe<sensor_msgs::PointCloud2>("pcd", 10, pcdCallback);
+//   // Make a ROS node, which we'll use to publish copies of the data in the CollisionMap and SDF
+//   // and Rviz markers that allow us to visualize them.
+//   ros::init(argc, argv, "area_segmentation");
+//   // Get a handle to the current node
+//   ros::NodeHandle nh;
+//   // Create the timer to load pcd
+//   ros::Timer estimate_update_timer = nh.createTimer(ros::Duration(5.0), pcdLoadCallback);
+//   // Make a publisher for point cloud
+//   pcd_pub = nh.advertise<PointCloud>("pcd_pre_processed", 1, false);
+//   occupy_map_pub = nh.advertise<nav_msgs::OccupancyGrid>("occupy_map", 1, false);
+//   // Make a subscriber for point cloud
+//  // ros::Subscriber cloud_sub = nh.subscribe<sensor_msgs::PointCloud2>("pcd", 10, pcdCallback);
 
- //ros::Subscriber cloud_grid_map = nh.subscribe<PointCloud>("cloud_grid_map", 10, cloudCallback);
+//  //ros::Subscriber cloud_grid_map = nh.subscribe<PointCloud>("cloud_grid_map", 10, cloudCallback);
   
-  ros::spin();
+//   ros::spin();
+    if (argc < 2) 
+    {
+        std::cout << "YOu need input the input photo path as a argument..." << std::endl;
+        std::cout << "Press anykey to exit " << std::endl;
+        getchar();
+        return -1;
+    }
+
+    occupy_qimage_to_result(argv[1]);
+
+    return 0;
 }

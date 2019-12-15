@@ -91,3 +91,5 @@ void occupy_map_to_qimage(nav_msgs::OccupancyGrid &occupancy_map, const char *in
 void occupy_map_to_cvimage(nav_msgs::OccupancyGrid &occupancy_map, const char *input_name);
 
 void occupy_qimage_to_result(const char *input_name);
+void extract_outer_contour(const cv::Mat& original_image, cv::Mat& pure_contour_map);
+void smooth_outer_contour(const cv::Mat& original_image, cv::Mat& smooth_contour_map);

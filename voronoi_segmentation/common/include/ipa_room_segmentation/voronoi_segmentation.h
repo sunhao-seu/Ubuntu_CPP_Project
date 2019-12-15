@@ -32,7 +32,9 @@ public:
 
 	void Find_my_node_points(const cv::Mat& voronoi_map_backup, const cv::Mat& distance_map, std::vector<cv::Point>& my_true_node_points);
 
-	void Find_contour_points(const cv::Mat& original_map, const cv::Mat& distance_map, std::vector<cv::Point>& contour_points);
+	void Find_contour_points(const cv::Mat& original_map, const cv::Mat& distance_map, std::vector<cv::Point>& contour_points,  double map_resolution_from_subscription);
+	
+	void Generate_even_ray_points(const cv::Mat& origial_map, std::vector<cv::Point>& my_generated_points);
 
 	void ray_occupy_map_func(cv::Point current_point, cv::Mat& ray_cast_occupy_map,  const cv::Mat& original_map);
 	
