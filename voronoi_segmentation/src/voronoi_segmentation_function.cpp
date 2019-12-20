@@ -285,9 +285,9 @@ void occupy_qimage_to_result(const char *input_name)
 
 std::cout << "before voronoi " << std::endl;
     VoronoiSegmentation voronoi_segmentation; //voronoi segmentation method
-	voronoi_segmentation.segmentMap(pure_contour_img, segmented_map, map_resolution, room_lower_limit_voronoi_, room_upper_limit_voronoi_,
-		voronoi_neighborhood_index_, max_iterations_, min_critical_point_distance_factor_, max_area_for_merging_, 0);
-
+	//voronoi_segmentation.segmentMap(pure_contour_img, segmented_map, map_resolution, room_lower_limit_voronoi_, room_upper_limit_voronoi_,
+	//	voronoi_neighborhood_index_, max_iterations_, min_critical_point_distance_factor_, max_area_for_merging_, 0);
+    voronoi_segmentation.RayCannySegmentMap(pure_contour_img, segmented_map, map_resolution);
 std::cout << "end voronoi " << std::endl;
 }
 
@@ -373,7 +373,7 @@ void extract_outer_contour(const cv::Mat& original_image, cv::Mat& pure_contour_
                         for(int j = -1; j <= 1; j ++)
                         {
                             //nearest 1 grid
-                            if((abs(i) + abs(j)) == 1)
+                            if((abs(i) + abs(j)) != 0)
                             {
                                 int searching_x = current_point.x + i;
                                 int searching_y = current_point.y + j;
@@ -422,59 +422,3 @@ void extract_outer_contour(const cv::Mat& original_image, cv::Mat& pure_contour_
     std::cout << "removed " << noise_points_number << " noise points" << std::endl;
 
 }
-
-///*********************circle wave to find pure free cicle.****************************
-    // int noise_points_number = 0;
-    // pure_contour_map = original_image.clone();
-    // for (int v = 0; v < original_image.rows; v++)
-    // {
-    //     for (int u = 0; u < original_image.cols; u++)
-    //     {
-    //         unsigned int pixel_original_map = pure_contour_map.at<unsigned char>(v, u);
-    //         if(pixel_original_map == 0) // if be black, obstacle
-    //         {
-    //             int current_x = u;
-    //             int current_y = v;
-    //             int search_radius = 1;
-    //             bool noise_point = false;
-    //             while(search_radius < 5)
-    //             {
-    //                 int radius_obstacle_count = 0;
-    //                 for(int i = -search_radius; i <= search_radius; i ++)
-    //                 {
-    //                     for(int j = -search_radius; j <= search_radius; j ++)
-    //                     {
-    //                         int searching_x = current_x + i;
-    //                         int searching_y = current_y + j;
-    //                         float distance_to_current_point = sqrt(i*i + j*j);
-    //                         if (searching_x >= 0 && searching_y >= 0 && searching_y < pure_contour_map.rows && searching_x < pure_contour_map.cols && distance_to_current_point >= search_radius)
-    //                         {
-    //                             if(pure_contour_map.at<unsigned char>(searching_y, searching_x) == 0)
-    //                                 radius_obstacle_count ++;
-    //                         }
-    //                     }
-    //                 }
-    //                 if(radius_obstacle_count >= search_radius*8/4)   //a true obstacle must have at least this number neighbors
-    //                     search_radius ++;
-    //                 else
-    //                 {
-    //                     noise_point = true;
-    //                     break;
-    //                 }
-                        
-    //             }
-
-    //             if(noise_point)
-    //             {
-    //                 pure_contour_map.at<unsigned char>(current_y, current_x) = 255;
-    //                 noise_points_number++;
-    //                 if(u > 1)
-    //                     u = u - 2;
-    //                 if(v > 1)
-    //                     v = v - 2;    
-    //             }
-    //         }
-    //     }
-    // }
-
-    // std::cout << "removed " << noise_points_number << " noise points" << std::endl;

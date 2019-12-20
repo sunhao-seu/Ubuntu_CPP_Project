@@ -25,6 +25,12 @@ public:
 			double room_area_factor_lower_limit, double room_area_factor_upper_limit, int neighborhood_index, int max_iterations,
 			double min_critical_point_distance_factor, double max_area_for_merging, bool display_map=false);
 
+	void RayCannySegmentMap(const cv::Mat& original_map, cv::Mat& segmented_map, double map_resolution_from_subscription);
+
+	void FindDeadJointPoints(const cv::Mat& voronoi_map, std::vector<cv::Point>& voronoi_dead_end_points, std::vector<cv::Point>& voronoi_joint_points);
+
+	void ExtractEnclosureArea(const cv::Mat& map_to_be_labeled, std::vector<std::vector<cv::Point>>& segmented_map_vector, const cv::Mat& canny_edge_out, const std::vector<cv::Point>&voronoi_dead_end_points, const std::vector<cv::Point>&voronoi_joint_points, const cv::Mat& distance_map, std::vector<cv::Point>& split_line_points);
+
 	//void draw_segmented_map(const cv::Mat& segmented_map_to_be_draw, std::vector<Room>& rooms, const char *input_name);
 	void draw_segmented_line(const cv::Mat& map_to_be_draw, std::vector<std::vector<cv::Point>>& segment_result, const char *input_name);
 
